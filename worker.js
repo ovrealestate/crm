@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.3.0-ui-hoy
+ * Version: 0.3.1-ui-meta-fixes
 
  * ============================================================
 
@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.3.0-ui-hoy";
+const APP_VERSION = "0.3.1-ui-meta-fixes";
 
 
 
@@ -3335,10 +3335,17 @@ function renderAppPage() {
     }
 
     .counter-grid {
+      position: sticky;
+      top: 78px;
+      z-index: 12;
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 22px;
+      padding: 8px 0 10px;
+      background: rgba(244,244,242,.96);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
     }
 
     .counter-card {
@@ -3427,7 +3434,7 @@ function renderAppPage() {
 
     .section {
       margin-top: 26px;
-      scroll-margin-top: 92px;
+      scroll-margin-top: 220px;
     }
 
     .section-header {
@@ -3793,15 +3800,32 @@ function renderAppPage() {
       }
 
       .counter-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        top: 66px;
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        margin-left: -12px;
+        margin-right: -12px;
+        padding: 8px 12px 10px;
+        scrollbar-width: none;
+      }
+
+      .counter-grid::-webkit-scrollbar {
+        display: none;
       }
 
       .counter-card {
-        min-height: 102px;
+        flex: 0 0 142px;
+        min-height: 92px;
       }
 
       .counter-grid .counter-card:last-child {
-        grid-column: 1 / -1;
+        grid-column: auto;
+      }
+
+      .section {
+        scroll-margin-top: 175px;
       }
 
       .detail-grid {
@@ -3880,6 +3904,7 @@ function renderAppPage() {
       }
 
       .counter-card {
+        flex-basis: 132px;
         padding: 14px;
       }
 
@@ -4046,34 +4071,119 @@ function renderAppPage() {
   }
 
 
+  function sleep(ms) {
+    return new Promise(
+      resolve =>
+        setTimeout(resolve, ms)
+    );
+  }
+
+
   async function api(path, options = {}) {
-    const response =
-      await fetch(
-        path,
-        {
-          ...options,
-          headers: {
-            ...(options.headers || {}),
-            "Accept": "application/json"
-          }
+    const method =
+      String(
+        options.method || "GET"
+      ).toUpperCase();
+
+    const attempts =
+      method === "GET"
+        ? 2
+        : 1;
+
+    let lastError = null;
+
+    for (
+      let attempt = 1;
+      attempt <= attempts;
+      attempt++
+    ) {
+      try {
+        const response =
+          await fetch(
+            path,
+            {
+              ...options,
+              headers: {
+                ...(options.headers || {}),
+                "Accept": "application/json"
+              }
+            }
+          );
+
+
+        if (response.status === 401) {
+          window.location.href = "/";
+          throw new Error("Sesión expirada");
         }
-      );
 
-    if (response.status === 401) {
-      window.location.href = "/";
-      throw new Error("Sesión expirada");
+
+        let data;
+
+        try {
+          data =
+            await response.json();
+        } catch {
+          const invalid =
+            new Error(
+              "El servidor devolvió una respuesta inválida."
+            );
+
+          invalid.retryable =
+            response.status >= 500;
+
+          throw invalid;
+        }
+
+
+        if (!data.ok) {
+          const apiError =
+            new Error(
+              data.error ||
+              "Error API"
+            );
+
+          apiError.retryable =
+            response.status === 502 ||
+            response.status === 503 ||
+            response.status === 504 ||
+            String(
+              data.error || ""
+            ).includes(
+              "Apps Script devolvió una respuesta inválida"
+            );
+
+          throw apiError;
+        }
+
+
+        return data.data;
+
+      } catch (error) {
+        lastError = error;
+
+        const canRetry =
+          method === "GET" &&
+          attempt < attempts &&
+          (
+            error.retryable === true ||
+            error.name === "TypeError"
+          );
+
+        if (!canRetry) {
+          throw error;
+        }
+
+        await sleep(500);
+      }
     }
 
-    const data = await response.json();
 
-    if (!data.ok) {
-      throw new Error(
-        data.error ||
+    throw (
+      lastError ||
+      new Error(
         "Error API"
-      );
-    }
-
-    return data.data;
+      )
+    );
   }
 
 
@@ -4428,14 +4538,8 @@ function renderAppPage() {
 
 
   async function loadHoy(force) {
-    const fresh =
-      Date.now() -
-      state.lastHoyLoad <
-      30000;
-
     if (
       state.hoy &&
-      fresh &&
       !force
     ) {
       return state.hoy;
@@ -4454,14 +4558,8 @@ function renderAppPage() {
 
 
   async function loadLeads(force) {
-    const fresh =
-      Date.now() -
-      state.lastLeadsLoad <
-      30000;
-
     if (
       state.leads &&
-      fresh &&
       !force
     ) {
       return state.leads;
@@ -4603,7 +4701,10 @@ function renderAppPage() {
         "div",
         "lead-meta",
         [
-          lead.proyecto,
+          lead.campana_nombre ||
+            lead.proyecto,
+          lead.anuncio_nombre ||
+            lead.formato,
           lead.telefono
         ]
           .filter(Boolean)
@@ -5543,7 +5644,10 @@ function renderAppPage() {
       back.addEventListener(
         "click",
         function() {
-          history.back();
+          navigate(
+            fromView ||
+            "leads"
+          );
         }
       );
 
@@ -5612,12 +5716,6 @@ function renderAppPage() {
         contact,
         "Correo",
         lead.correo
-      );
-
-      addInfoRow(
-        contact,
-        "Tel. original",
-        lead.telefono_original
       );
 
       const commercial =
@@ -5724,6 +5822,20 @@ function renderAppPage() {
           lead.fecha_lead,
           true
         )
+      );
+
+      addInfoRow(
+        acquisition,
+        "Campaña",
+        lead.campana_nombre ||
+        lead.proyecto
+      );
+
+      addInfoRow(
+        acquisition,
+        "Anuncio",
+        lead.anuncio_nombre ||
+        lead.formato
       );
 
       addInfoRow(
