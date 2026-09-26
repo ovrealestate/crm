@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.3.1-ui-meta-fixes
+ * Version: 0.4.0-write-operations
 
  * ============================================================
 
@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.3.1-ui-meta-fixes";
+const APP_VERSION = "0.4.0-write-operations";
 
 
 
@@ -586,6 +586,98 @@ async function routeRequest(request, env) {
 
     });
 
+  }
+
+
+
+
+
+  /**
+
+   * API LEAD UPDATE — OPERACIÓN
+
+   */
+
+  if (
+
+    url.pathname.startsWith(
+      "/api/leads/"
+    ) &&
+
+    method === "PATCH"
+
+  ) {
+
+    requireSameOrigin(
+      request
+    );
+
+
+    const session =
+      await requireSession(
+        request,
+        env
+      );
+
+
+    const crmLeadId =
+      decodeURIComponent(
+        url.pathname.substring(
+          "/api/leads/".length
+        )
+      ).trim();
+
+
+    if (!crmLeadId) {
+      throw publicError(
+        400,
+        "Falta crm_lead_id."
+      );
+    }
+
+
+    let body;
+
+
+    try {
+      body =
+        await request.json();
+
+    } catch {
+      throw publicError(
+        400,
+        "Solicitud inválida."
+      );
+    }
+
+
+    const upstream =
+      await callAppsScript(
+        env,
+        session.email,
+        {
+          action:
+            "leads.update",
+
+          crm_lead_id:
+            crmLeadId,
+
+          expected_version:
+            String(
+              body?.expected_version ||
+              ""
+            ),
+
+          changes:
+            body?.changes || {}
+        }
+      );
+
+
+    return jsonResponse({
+      ok: true,
+      data: upstream.data
+    });
   }
 
 
@@ -3703,6 +3795,139 @@ function renderAppPage() {
       white-space: pre-wrap;
     }
 
+    .operation-form {
+      display: grid;
+      gap: 14px;
+    }
+
+    .form-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .form-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .form-control {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 0 11px;
+      background: #fff;
+      color: #111;
+      outline: none;
+    }
+
+    .form-control:focus {
+      border-color: #a7a7a1;
+      box-shadow: 0 0 0 3px rgba(0,0,0,.04);
+    }
+
+    .followup-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 130px;
+      gap: 8px;
+    }
+
+    .discard-box {
+      display: none;
+      gap: 12px;
+      padding: 13px;
+      border: 1px solid #ead7d4;
+      border-radius: 13px;
+      background: #fff8f7;
+    }
+
+    .discard-box.visible {
+      display: grid;
+    }
+
+    .phone-warning {
+      display: none;
+      padding: 13px;
+      border: 1px solid #e8c4c0;
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    .phone-warning.visible {
+      display: block;
+    }
+
+    .phone-warning-title {
+      font-weight: 760;
+      margin-bottom: 8px;
+    }
+
+    .phone-warning-line {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #555;
+      overflow-wrap: anywhere;
+    }
+
+    .confirm-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-top: 10px;
+      color: #333;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .form-actions {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex-wrap: wrap;
+      padding-top: 2px;
+    }
+
+    .save-button {
+      min-height: 42px;
+      border: 0;
+      border-radius: 11px;
+      padding: 0 15px;
+      background: var(--black);
+      color: #fff;
+      font-weight: 740;
+    }
+
+    .save-button:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .secondary-button {
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 0 13px;
+      background: #fff;
+      color: #333;
+      font-weight: 680;
+    }
+
+    .save-status {
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .save-status.ok {
+      color: var(--green);
+    }
+
+    .save-status.error {
+      color: var(--red);
+    }
+
     .placeholder-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3837,6 +4062,10 @@ function renderAppPage() {
       }
 
       .placeholder-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .followup-grid {
         grid-template-columns: 1fr;
       }
 
@@ -4625,7 +4854,7 @@ function renderAppPage() {
       element(
         "div",
         "readonly-pill",
-        "Solo lectura"
+        "Operativo"
       )
     );
 
@@ -5519,6 +5748,863 @@ function renderAppPage() {
   }
 
 
+  function parseLeadDateParts(value) {
+    const empty = {
+      date: "",
+      time: ""
+    };
+
+
+    if (!value) {
+      return empty;
+    }
+
+
+    const text =
+      String(value).trim();
+
+
+    let match =
+      text.match(
+        /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/
+      );
+
+
+    if (match) {
+      return {
+        date:
+          match[3] +
+          "-" +
+          String(match[2]).padStart(2, "0") +
+          "-" +
+          String(match[1]).padStart(2, "0"),
+
+        time:
+          match[4]
+            ? String(match[4]).padStart(2, "0") +
+              ":" +
+              match[5]
+            : ""
+      };
+    }
+
+
+    match =
+      text.match(
+        /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/
+      );
+
+
+    if (match) {
+      return {
+        date:
+          match[1] +
+          "-" +
+          match[2] +
+          "-" +
+          match[3],
+
+        time:
+          match[4] === "00" &&
+          match[5] === "00"
+            ? ""
+            : match[4] +
+              ":" +
+              match[5]
+      };
+    }
+
+
+    match =
+      text.match(
+        /^(\d{4})-(\d{2})-(\d{2})$/
+      );
+
+
+    if (match) {
+      return {
+        date:
+          text,
+
+        time:
+          ""
+      };
+    }
+
+
+    return empty;
+  }
+
+
+  function fillSelectOptions(
+    select,
+    options,
+    currentValue,
+    includeBlank,
+    blankLabel
+  ) {
+    select.replaceChildren();
+
+
+    if (includeBlank) {
+      const blank =
+        element(
+          "option",
+          "",
+          blankLabel || "Sin seleccionar"
+        );
+
+      blank.value = "";
+
+      select.appendChild(
+        blank
+      );
+    }
+
+
+    const list =
+      Array.isArray(options)
+        ? options
+        : [];
+
+
+    list.forEach(
+      function(option) {
+        const item =
+          element(
+            "option",
+            "",
+            option.nombre
+          );
+
+        item.value =
+          option.nombre;
+
+        item.dataset.codigo =
+          option.codigo || "";
+
+        if (
+          option.nombre ===
+          currentValue
+        ) {
+          item.selected =
+            true;
+        }
+
+        select.appendChild(
+          item
+        );
+      }
+    );
+
+
+    if (
+      currentValue &&
+      !Array.from(
+        select.options
+      ).some(
+        option =>
+          option.value ===
+          currentValue
+      )
+    ) {
+      const legacy =
+        element(
+          "option",
+          "",
+          currentValue +
+          " (actual)"
+        );
+
+      legacy.value =
+        currentValue;
+
+      legacy.selected =
+        true;
+
+      select.appendChild(
+        legacy
+      );
+    }
+  }
+
+
+  function selectedOptionCode(
+    select
+  ) {
+    const option =
+      select.options[
+        select.selectedIndex
+      ];
+
+    return option
+      ? String(
+          option.dataset.codigo || ""
+        )
+      : "";
+  }
+
+
+  function makeOperationEditor(
+    lead,
+    options,
+    crmLeadId,
+    fromView
+  ) {
+    const form =
+      element(
+        "div",
+        "operation-form"
+      );
+
+
+    const stageField =
+      element(
+        "div",
+        "form-field"
+      );
+
+    stageField.appendChild(
+      element(
+        "div",
+        "form-label",
+        "Etapa"
+      )
+    );
+
+    const stageSelect =
+      element(
+        "select",
+        "form-control"
+      );
+
+    fillSelectOptions(
+      stageSelect,
+      options.etapas,
+      lead.etapa,
+      false,
+      ""
+    );
+
+    stageField.appendChild(
+      stageSelect
+    );
+
+
+    const priorityField =
+      element(
+        "div",
+        "form-field"
+      );
+
+    priorityField.appendChild(
+      element(
+        "div",
+        "form-label",
+        "Prioridad"
+      )
+    );
+
+    const prioritySelect =
+      element(
+        "select",
+        "form-control"
+      );
+
+    fillSelectOptions(
+      prioritySelect,
+      options.prioridades,
+      lead.prioridad,
+      true,
+      "Sin prioridad"
+    );
+
+    priorityField.appendChild(
+      prioritySelect
+    );
+
+
+    const followupField =
+      element(
+        "div",
+        "form-field"
+      );
+
+    followupField.appendChild(
+      element(
+        "div",
+        "form-label",
+        "Próximo seguimiento"
+      )
+    );
+
+    const followupGrid =
+      element(
+        "div",
+        "followup-grid"
+      );
+
+    const followupDate =
+      element(
+        "input",
+        "form-control"
+      );
+
+    followupDate.type =
+      "date";
+
+
+    const followupTime =
+      element(
+        "input",
+        "form-control"
+      );
+
+    followupTime.type =
+      "time";
+
+
+    const followParts =
+      parseLeadDateParts(
+        lead.proximo_seguimiento
+      );
+
+
+    followupDate.value =
+      followParts.date;
+
+    followupTime.value =
+      followParts.time;
+
+
+    followupGrid.append(
+      followupDate,
+      followupTime
+    );
+
+    followupField.appendChild(
+      followupGrid
+    );
+
+
+    const discardBox =
+      element(
+        "div",
+        "discard-box"
+      );
+
+    const discardField =
+      element(
+        "div",
+        "form-field"
+      );
+
+    discardField.appendChild(
+      element(
+        "div",
+        "form-label",
+        "Motivo de descarte"
+      )
+    );
+
+    const discardSelect =
+      element(
+        "select",
+        "form-control"
+      );
+
+    fillSelectOptions(
+      discardSelect,
+      options.motivos_descarte,
+      lead.motivo_descarte,
+      true,
+      "Seleccione un motivo"
+    );
+
+    discardField.appendChild(
+      discardSelect
+    );
+
+    discardBox.appendChild(
+      discardField
+    );
+
+
+    const phoneWarning =
+      element(
+        "div",
+        "phone-warning"
+      );
+
+    phoneWarning.appendChild(
+      element(
+        "div",
+        "phone-warning-title",
+        "Revise el número antes de descartar"
+      )
+    );
+
+    phoneWarning.appendChild(
+      element(
+        "div",
+        "phone-warning-line",
+        "Original: " +
+        (
+          lead.telefono_original ||
+          "Sin dato"
+        )
+      )
+    );
+
+    phoneWarning.appendChild(
+      element(
+        "div",
+        "phone-warning-line",
+        "Normalizado: " +
+        (
+          lead.telefono_normalizado ||
+          lead.telefono ||
+          "Sin dato"
+        )
+      )
+    );
+
+    phoneWarning.appendChild(
+      element(
+        "div",
+        "phone-warning-line",
+        "País: " +
+        (
+          lead.pais_telefono ||
+          "Sin dato"
+        )
+      )
+    );
+
+
+    const confirmLabel =
+      element(
+        "label",
+        "confirm-line"
+      );
+
+    const confirmCheckbox =
+      element(
+        "input"
+      );
+
+    confirmCheckbox.type =
+      "checkbox";
+
+
+    confirmLabel.append(
+      confirmCheckbox,
+      document.createTextNode(
+        "Confirmo que revisé el teléfono original y que el número es erróneo."
+      )
+    );
+
+    phoneWarning.appendChild(
+      confirmLabel
+    );
+
+    discardBox.appendChild(
+      phoneWarning
+    );
+
+
+    const actions =
+      element(
+        "div",
+        "form-actions"
+      );
+
+    const saveButton =
+      element(
+        "button",
+        "save-button",
+        "Guardar cambios"
+      );
+
+    saveButton.type =
+      "button";
+
+
+    const resetButton =
+      element(
+        "button",
+        "secondary-button",
+        "Restablecer"
+      );
+
+    resetButton.type =
+      "button";
+
+
+    const status =
+      element(
+        "div",
+        "save-status"
+      );
+
+
+    actions.append(
+      saveButton,
+      resetButton
+    );
+
+
+    const initial = {
+      etapa:
+        lead.etapa || "",
+
+      prioridad:
+        lead.prioridad || "",
+
+      fecha:
+        followParts.date,
+
+      hora:
+        followParts.time,
+
+      motivo:
+        lead.motivo_descarte || ""
+    };
+
+
+    function syncDiscardVisibility() {
+      const isDiscarded =
+        normalized(
+          stageSelect.value
+        ) ===
+        "descartado";
+
+
+      discardBox.classList.toggle(
+        "visible",
+        isDiscarded
+      );
+
+
+      const isPhoneError =
+        isDiscarded &&
+        selectedOptionCode(
+          discardSelect
+        ) ===
+          "NUMERO_ERRONEO";
+
+
+      phoneWarning.classList.toggle(
+        "visible",
+        isPhoneError
+      );
+
+
+      if (!isPhoneError) {
+        confirmCheckbox.checked =
+          false;
+      }
+    }
+
+
+    function currentFollowupPayload() {
+      const date =
+        followupDate.value;
+
+      const time =
+        followupTime.value;
+
+
+      if (!date) {
+        if (time) {
+          throw new Error(
+            "Seleccione una fecha para el seguimiento."
+          );
+        }
+
+        return "";
+      }
+
+
+      return time
+        ? date +
+          "T" +
+          time
+        : date;
+    }
+
+
+    function currentInitialFollowup() {
+      if (!initial.fecha) {
+        return "";
+      }
+
+      return initial.hora
+        ? initial.fecha +
+          "T" +
+          initial.hora
+        : initial.fecha;
+    }
+
+
+    function resetForm() {
+      stageSelect.value =
+        initial.etapa;
+
+      prioritySelect.value =
+        initial.prioridad;
+
+      followupDate.value =
+        initial.fecha;
+
+      followupTime.value =
+        initial.hora;
+
+      discardSelect.value =
+        initial.motivo;
+
+      confirmCheckbox.checked =
+        false;
+
+      status.className =
+        "save-status";
+
+      status.textContent =
+        "";
+
+      syncDiscardVisibility();
+    }
+
+
+    stageSelect.addEventListener(
+      "change",
+      syncDiscardVisibility
+    );
+
+
+    discardSelect.addEventListener(
+      "change",
+      syncDiscardVisibility
+    );
+
+
+    resetButton.addEventListener(
+      "click",
+      resetForm
+    );
+
+
+    saveButton.addEventListener(
+      "click",
+      async function() {
+        status.className =
+          "save-status";
+
+        status.textContent =
+          "";
+
+
+        try {
+          const changes = {};
+
+
+          const stageChanged =
+            stageSelect.value !==
+            initial.etapa;
+
+
+          const discardChanged =
+            discardSelect.value !==
+            initial.motivo;
+
+
+          if (stageChanged) {
+            changes.etapa =
+              stageSelect.value;
+          }
+
+
+          if (
+            prioritySelect.value !==
+            initial.prioridad
+          ) {
+            changes.prioridad =
+              prioritySelect.value;
+          }
+
+
+          const followup =
+            currentFollowupPayload();
+
+
+          if (
+            followup !==
+            currentInitialFollowup()
+          ) {
+            changes.proximo_seguimiento =
+              followup;
+          }
+
+
+          const finalDiscarded =
+            normalized(
+              stageSelect.value
+            ) ===
+            "descartado";
+
+
+          if (
+            finalDiscarded &&
+            (
+              stageChanged ||
+              discardChanged
+            )
+          ) {
+            changes.motivo_descarte =
+              discardSelect.value;
+
+
+            if (
+              selectedOptionCode(
+                discardSelect
+              ) ===
+                "NUMERO_ERRONEO"
+            ) {
+              changes.confirmar_numero_erroneo =
+                confirmCheckbox.checked;
+            }
+          }
+
+
+          const editableKeys =
+            Object.keys(
+              changes
+            ).filter(
+              key =>
+                key !==
+                "confirmar_numero_erroneo"
+            );
+
+
+          if (!editableKeys.length) {
+            status.textContent =
+              "No hay cambios por guardar.";
+
+            return;
+          }
+
+
+          if (
+            finalDiscarded &&
+            stageChanged &&
+            !discardSelect.value
+          ) {
+            throw new Error(
+              "Seleccione un motivo de descarte."
+            );
+          }
+
+
+          if (
+            finalDiscarded &&
+            (
+              stageChanged ||
+              discardChanged
+            ) &&
+            selectedOptionCode(
+              discardSelect
+            ) ===
+              "NUMERO_ERRONEO" &&
+            !confirmCheckbox.checked
+          ) {
+            throw new Error(
+              "Revise el teléfono original y marque la confirmación."
+            );
+          }
+
+
+          saveButton.disabled =
+            true;
+
+          resetButton.disabled =
+            true;
+
+          status.textContent =
+            "Guardando...";
+
+
+          await api(
+            "/api/leads/" +
+              encodeURIComponent(
+                crmLeadId
+              ),
+            {
+              method:
+                "PATCH",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              },
+
+              body:
+                JSON.stringify({
+                  expected_version:
+                    lead.operational_version,
+
+                  changes:
+                    changes
+                })
+            }
+          );
+
+
+          state.hoy = null;
+          state.leads = null;
+          state.lastHoyLoad = 0;
+          state.lastLeadsLoad = 0;
+
+
+          await renderLeadDetail(
+            crmLeadId,
+            fromView
+          );
+
+        } catch (error) {
+          saveButton.disabled =
+            false;
+
+          resetButton.disabled =
+            false;
+
+          status.className =
+            "save-status error";
+
+          status.textContent =
+            error.message ||
+            "No se pudieron guardar los cambios.";
+        }
+      }
+    );
+
+
+    syncDiscardVisibility();
+
+
+    form.append(
+      stageField,
+      priorityField,
+      followupField,
+      discardBox,
+      actions,
+      status
+    );
+
+
+    return form;
+  }
+
+
   function addInfoRow(
     card,
     label,
@@ -5760,21 +6846,20 @@ function renderAppPage() {
 
       const pipeline =
         createDetailCard(
-          "Pipeline",
+          "Operación",
           false
         );
 
-      addInfoRow(
-        pipeline,
-        "Etapa",
-        lead.etapa
+
+      pipeline.appendChild(
+        makeOperationEditor(
+          lead,
+          data.opciones_operativas || {},
+          crmLeadId,
+          fromView
+        )
       );
 
-      addInfoRow(
-        pipeline,
-        "Prioridad",
-        lead.prioridad
-      );
 
       addInfoRow(
         pipeline,
@@ -5785,14 +6870,6 @@ function renderAppPage() {
         )
       );
 
-      addInfoRow(
-        pipeline,
-        "Seguimiento",
-        formatDateValue(
-          lead.proximo_seguimiento,
-          true
-        )
-      );
 
       addInfoRow(
         pipeline,
@@ -5801,12 +6878,6 @@ function renderAppPage() {
           lead.fecha_cita,
           true
         )
-      );
-
-      addInfoRow(
-        pipeline,
-        "Motivo descarte",
-        lead.motivo_descarte
       );
 
       const acquisition =
