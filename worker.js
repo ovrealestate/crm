@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.4.1-write-operations-hotfix
+ * Version: 0.5.0-popover-priority-followup
 
  * ============================================================
 
@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.4.1-write-operations-hotfix";
+const APP_VERSION = "0.5.0-popover-priority-followup";
 
 
 
@@ -683,6 +683,54 @@ async function routeRequest(request, env) {
 
 
 
+
+
+
+  /**
+   * API ADD NOTE
+   */
+  if (
+    url.pathname.startsWith("/api/leads/") &&
+    url.pathname.endsWith("/notes") &&
+    method === "POST"
+  ) {
+    requireSameOrigin(request);
+    const session = await requireSession(request, env);
+    const rawId = url.pathname.substring("/api/leads/".length, url.pathname.length - "/notes".length);
+    const crmLeadId = decodeURIComponent(rawId).trim();
+    if (!crmLeadId) throw publicError(400, "Falta crm_lead_id.");
+
+    let body;
+    try { body = await request.json(); }
+    catch { throw publicError(400, "Solicitud inválida."); }
+
+    const upstream = await callAppsScript(env, session.email, {
+      action: "notes.add",
+      crm_lead_id: crmLeadId,
+      nota: String(body?.nota || "")
+    });
+
+    return jsonResponse({ok: true, data: upstream.data});
+  }
+
+
+  /**
+   * CLIENT / APP LOG
+   */
+  if (url.pathname === "/api/app-log" && method === "POST") {
+    requireSameOrigin(request);
+    const session = await requireSession(request, env);
+    let body;
+    try { body = await request.json(); }
+    catch { throw publicError(400, "Solicitud inválida."); }
+
+    const upstream = await callAppsScript(env, session.email, {
+      action: "app.log",
+      log: body?.log || {}
+    });
+
+    return jsonResponse({ok: true, data: upstream.data});
+  }
 
   /**
 
@@ -2524,7 +2572,11 @@ async function callAppsScript(
 
             ...payload,
 
+            request_id:
+              payload.request_id || crypto.randomUUID(),
 
+            worker_version:
+              APP_VERSION,
 
             user_email:
 
@@ -3795,6 +3847,141 @@ function renderAppPage() {
       white-space: pre-wrap;
     }
 
+    .editable-info-row {
+      display: grid;
+      grid-template-columns: 132px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 0;
+      border-top: 1px solid #eeeeeb;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .editable-info-row:first-of-type {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .editable-value-wrap {
+      min-width: 0;
+    }
+
+    .editable-subtitle {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .edit-link {
+      border: 0;
+      background: transparent;
+      padding: 4px 0 4px 8px;
+      color: #111;
+      font-size: 12px;
+      font-weight: 760;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+
+    .card-action-button {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 10px;
+      padding: 8px 11px;
+      font-weight: 720;
+      font-size: 12px;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+
+    .popover-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(0,0,0,.22);
+      display: grid;
+      place-items: center;
+      padding: 18px;
+    }
+
+    .popover-panel {
+      width: min(440px, 100%);
+      max-height: min(82vh, 760px);
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #deded8;
+      border-radius: 18px;
+      box-shadow: 0 24px 70px rgba(0,0,0,.20);
+      padding: 18px;
+    }
+
+    .popover-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .popover-title {
+      font-size: 17px;
+      font-weight: 790;
+    }
+
+    .popover-close {
+      border: 0;
+      background: #f3f3f0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    .popover-body {
+      display: grid;
+      gap: 13px;
+    }
+
+    .popover-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .popover-help {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .stage-link-box {
+      display: none;
+      padding: 12px;
+      border: 1px solid #dddcd6;
+      border-radius: 12px;
+      background: #fafaf8;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .stage-link-box.visible { display: block; }
+
+    .form-textarea {
+      min-height: 92px;
+      padding-top: 10px;
+      resize: vertical;
+    }
+
+    .value-money {
+      display: none;
+    }
+
+    .value-money.visible { display: grid; }
+
     .operation-form {
       display: grid;
       gap: 14px;
@@ -4308,6 +4495,37 @@ function renderAppPage() {
   }
 
 
+  function reportClientError(error, context = {}) {
+    try {
+      fetch("/api/app-log", {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "Accept": "application/json"},
+        body: JSON.stringify({
+          log: {
+            nivel: "ERROR",
+            capa: "FRONTEND",
+            accion: context.accion || "client.error",
+            endpoint: context.endpoint || window.location.pathname,
+            crm_lead_id: context.crm_lead_id || "",
+            http_status: context.http_status || "",
+            error_code: context.error_code || "",
+            mensaje: String(error?.message || error || "Error frontend").slice(0, 1000),
+            worker_version: "0.5.0-popover-priority-followup",
+            detalle: String(error?.stack || "").slice(0, 2000)
+          }
+        })
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  window.addEventListener("error", event => {
+    reportClientError(event.error || event.message, {accion: "window.error"});
+  });
+
+  window.addEventListener("unhandledrejection", event => {
+    reportClientError(event.reason || "Promise rechazada", {accion: "unhandledrejection"});
+  });
+
   async function api(path, options = {}) {
     const method =
       String(
@@ -4399,6 +4617,13 @@ function renderAppPage() {
           );
 
         if (!canRetry) {
+          if (path !== "/api/app-log") {
+            reportClientError(error, {
+              accion: "api.request",
+              endpoint: path,
+              http_status: error.httpStatus || ""
+            });
+          }
           throw error;
         }
 
@@ -5945,663 +6170,367 @@ function renderAppPage() {
   }
 
 
-  function makeOperationEditor(
-    lead,
-    options,
-    crmLeadId,
-    fromView
-  ) {
-    const form =
-      element(
-        "div",
-        "operation-form"
-      );
+  function makeOperationEditor(lead, options, crmLeadId, fromView) {
+    const wrap = element("div", "operation-summary");
 
-
-    const stageField =
-      element(
-        "div",
-        "form-field"
-      );
-
-    stageField.appendChild(
-      element(
-        "div",
-        "form-label",
-        "Etapa"
-      )
+    addEditableInfoRow(
+      wrap,
+      "Etapa",
+      lead.etapa || "Sin etapa",
+      "",
+      function() { openStagePopover(lead, options, crmLeadId, fromView); }
     );
 
-    const stageSelect =
-      element(
-        "select",
-        "form-control"
-      );
-
-    fillSelectOptions(
-      stageSelect,
-      options.etapas,
-      lead.etapa,
-      false,
-      ""
+    const priorityText = lead.prioridad_efectiva || "Sin prioridad";
+    const prioritySub = [lead.prioridad_modo, lead.prioridad_motivo].filter(Boolean).join(" · ");
+    addEditableInfoRow(
+      wrap,
+      "Prioridad",
+      priorityText,
+      prioritySub,
+      function() { openPriorityPopover(lead, options, crmLeadId, fromView); }
     );
 
-    stageField.appendChild(
-      stageSelect
+    const followupText = lead.proximo_seguimiento
+      ? formatDateValue(lead.proximo_seguimiento, true)
+      : "Sin seguimiento";
+    const followupSub = [lead.seguimiento_actividad, lead.seguimiento_nota].filter(Boolean).join(" · ");
+    addEditableInfoRow(
+      wrap,
+      "Próximo seguimiento",
+      followupText,
+      followupSub,
+      function() { openFollowupPopover(lead, options, crmLeadId, fromView); }
     );
 
+    return wrap;
+  }
 
-    const priorityField =
-      element(
-        "div",
-        "form-field"
-      );
+  function addEditableInfoRow(card, label, value, subtitle, onEdit) {
+    const row = element("div", "editable-info-row");
+    row.appendChild(element("div", "info-label", label));
 
-    priorityField.appendChild(
-      element(
-        "div",
-        "form-label",
-        "Prioridad"
-      )
-    );
+    const valueWrap = element("div", "editable-value-wrap");
+    valueWrap.appendChild(element("div", "info-value", value || "—"));
+    if (subtitle) valueWrap.appendChild(element("div", "editable-subtitle", subtitle));
+    row.appendChild(valueWrap);
 
-    const prioritySelect =
-      element(
-        "select",
-        "form-control"
-      );
+    const edit = element("button", "edit-link", "Editar");
+    edit.type = "button";
+    edit.addEventListener("click", onEdit);
+    row.appendChild(edit);
+    card.appendChild(row);
+  }
 
-    fillSelectOptions(
-      prioritySelect,
-      options.prioridades,
-      lead.prioridad,
-      true,
-      "Sin prioridad"
-    );
+  function openPopover(title) {
+    const backdrop = element("div", "popover-backdrop");
+    const panel = element("div", "popover-panel");
+    const head = element("div", "popover-head");
+    head.appendChild(element("div", "popover-title", title));
+    const close = element("button", "popover-close", "×");
+    close.type = "button";
+    head.appendChild(close);
+    const body = element("div", "popover-body");
+    panel.append(head, body);
+    backdrop.appendChild(panel);
+    document.body.appendChild(backdrop);
 
-    priorityField.appendChild(
-      prioritySelect
-    );
-
-
-    const followupField =
-      element(
-        "div",
-        "form-field"
-      );
-
-    followupField.appendChild(
-      element(
-        "div",
-        "form-label",
-        "Próximo seguimiento"
-      )
-    );
-
-    const followupGrid =
-      element(
-        "div",
-        "followup-grid"
-      );
-
-    const followupDate =
-      element(
-        "input",
-        "form-control"
-      );
-
-    followupDate.type =
-      "date";
-
-
-    const followupTime =
-      element(
-        "input",
-        "form-control"
-      );
-
-    followupTime.type =
-      "time";
-
-
-    const followParts =
-      parseLeadDateParts(
-        lead.proximo_seguimiento
-      );
-
-
-    followupDate.value =
-      followParts.date;
-
-    followupTime.value =
-      followParts.time;
-
-
-    followupGrid.append(
-      followupDate,
-      followupTime
-    );
-
-    followupField.appendChild(
-      followupGrid
-    );
-
-
-    const discardBox =
-      element(
-        "div",
-        "discard-box"
-      );
-
-    const discardField =
-      element(
-        "div",
-        "form-field"
-      );
-
-    discardField.appendChild(
-      element(
-        "div",
-        "form-label",
-        "Motivo de descarte"
-      )
-    );
-
-    const discardSelect =
-      element(
-        "select",
-        "form-control"
-      );
-
-    fillSelectOptions(
-      discardSelect,
-      options.motivos_descarte,
-      lead.motivo_descarte,
-      true,
-      "Seleccione un motivo"
-    );
-
-    discardField.appendChild(
-      discardSelect
-    );
-
-    discardBox.appendChild(
-      discardField
-    );
-
-
-    const phoneWarning =
-      element(
-        "div",
-        "phone-warning"
-      );
-
-    phoneWarning.appendChild(
-      element(
-        "div",
-        "phone-warning-title",
-        "Revise el número antes de descartar"
-      )
-    );
-
-    phoneWarning.appendChild(
-      element(
-        "div",
-        "phone-warning-line",
-        "Original: " +
-        (
-          lead.telefono_original ||
-          "Sin dato"
-        )
-      )
-    );
-
-    phoneWarning.appendChild(
-      element(
-        "div",
-        "phone-warning-line",
-        "Normalizado: " +
-        (
-          lead.telefono_normalizado ||
-          lead.telefono ||
-          "Sin dato"
-        )
-      )
-    );
-
-    phoneWarning.appendChild(
-      element(
-        "div",
-        "phone-warning-line",
-        "País: " +
-        (
-          lead.pais_telefono ||
-          "Sin dato"
-        )
-      )
-    );
-
-
-    const confirmLabel =
-      element(
-        "label",
-        "confirm-line"
-      );
-
-    const confirmCheckbox =
-      element(
-        "input"
-      );
-
-    confirmCheckbox.type =
-      "checkbox";
-
-
-    confirmLabel.append(
-      confirmCheckbox,
-      document.createTextNode(
-        "Confirmo que revisé el teléfono original y que el número es erróneo."
-      )
-    );
-
-    phoneWarning.appendChild(
-      confirmLabel
-    );
-
-    discardBox.appendChild(
-      phoneWarning
-    );
-
-
-    const actions =
-      element(
-        "div",
-        "form-actions"
-      );
-
-    const saveButton =
-      element(
-        "button",
-        "save-button",
-        "Guardar cambios"
-      );
-
-    saveButton.type =
-      "button";
-
-
-    const resetButton =
-      element(
-        "button",
-        "secondary-button",
-        "Restablecer"
-      );
-
-    resetButton.type =
-      "button";
-
-
-    const status =
-      element(
-        "div",
-        "save-status"
-      );
-
-
-    actions.append(
-      saveButton,
-      resetButton
-    );
-
-
-    const initial = {
-      etapa:
-        lead.etapa || "",
-
-      prioridad:
-        lead.prioridad || "",
-
-      fecha:
-        followParts.date,
-
-      hora:
-        followParts.time,
-
-      motivo:
-        lead.motivo_descarte || ""
+    let keyHandler;
+    const dismiss = function() {
+      document.removeEventListener("keydown", keyHandler);
+      backdrop.remove();
     };
+    close.addEventListener("click", dismiss);
+    backdrop.addEventListener("click", event => {
+      if (event.target === backdrop) dismiss();
+    });
+    keyHandler = event => { if (event.key === "Escape") dismiss(); };
+    document.addEventListener("keydown", keyHandler);
+    return {backdrop, panel, body, dismiss};
+  }
 
+  function popoverField(label, control) {
+    const field = element("div", "form-field");
+    field.appendChild(element("div", "form-label", label));
+    field.appendChild(control);
+    return field;
+  }
 
-    function syncDiscardVisibility() {
-      const isDiscarded =
-        normalized(
-          stageSelect.value
-        ) ===
-        "descartado";
-
-
-      discardBox.classList.toggle(
-        "visible",
-        isDiscarded
-      );
-
-
-      const isPhoneError =
-        isDiscarded &&
-        selectedOptionCode(
-          discardSelect
-        ) ===
-          "NUMERO_ERRONEO";
-
-
-      phoneWarning.classList.toggle(
-        "visible",
-        isPhoneError
-      );
-
-
-      if (!isPhoneError) {
-        confirmCheckbox.checked =
-          false;
+  function popoverActions(pop, onSave, label = "Guardar") {
+    const status = element("div", "save-status");
+    const actions = element("div", "popover-actions");
+    const cancel = element("button", "secondary-button", "Cancelar");
+    cancel.type = "button";
+    cancel.addEventListener("click", pop.dismiss);
+    const save = element("button", "save-button", label);
+    save.type = "button";
+    save.addEventListener("click", async function() {
+      status.className = "save-status";
+      status.textContent = "";
+      save.disabled = true;
+      cancel.disabled = true;
+      try {
+        await onSave();
+        pop.dismiss();
+      } catch (error) {
+        save.disabled = false;
+        cancel.disabled = false;
+        status.className = "save-status error";
+        status.textContent = error.message || "No se pudo guardar.";
       }
-    }
-
-
-    function currentFollowupPayload() {
-      const date =
-        followupDate.value;
-
-      const time =
-        followupTime.value;
-
-
-      if (!date) {
-        if (time) {
-          throw new Error(
-            "Seleccione una fecha para el seguimiento."
-          );
-        }
-
-        return "";
-      }
-
-
-      return time
-        ? date +
-          "T" +
-          time
-        : date;
-    }
-
-
-    function currentInitialFollowup() {
-      if (!initial.fecha) {
-        return "";
-      }
-
-      return initial.hora
-        ? initial.fecha +
-          "T" +
-          initial.hora
-        : initial.fecha;
-    }
-
-
-    function resetForm() {
-      stageSelect.value =
-        initial.etapa;
-
-      prioritySelect.value =
-        initial.prioridad;
-
-      followupDate.value =
-        initial.fecha;
-
-      followupTime.value =
-        initial.hora;
-
-      discardSelect.value =
-        initial.motivo;
-
-      confirmCheckbox.checked =
-        false;
-
-      status.className =
-        "save-status";
-
-      status.textContent =
-        "";
-
-      syncDiscardVisibility();
-    }
-
-
-    stageSelect.addEventListener(
-      "change",
-      syncDiscardVisibility
-    );
-
-
-    discardSelect.addEventListener(
-      "change",
-      syncDiscardVisibility
-    );
-
-
-    resetButton.addEventListener(
-      "click",
-      resetForm
-    );
-
-
-    saveButton.addEventListener(
-      "click",
-      async function() {
-        status.className =
-          "save-status";
-
-        status.textContent =
-          "";
-
-
-        try {
-          const changes = {};
-
-
-          const stageChanged =
-            stageSelect.value !==
-            initial.etapa;
-
-
-          const discardChanged =
-            discardSelect.value !==
-            initial.motivo;
-
-
-          if (stageChanged) {
-            changes.etapa =
-              stageSelect.value;
-          }
-
-
-          if (
-            prioritySelect.value !==
-            initial.prioridad
-          ) {
-            changes.prioridad =
-              prioritySelect.value;
-          }
-
-
-          const followup =
-            currentFollowupPayload();
-
-
-          if (
-            followup !==
-            currentInitialFollowup()
-          ) {
-            changes.proximo_seguimiento =
-              followup;
-          }
-
-
-          const finalDiscarded =
-            normalized(
-              stageSelect.value
-            ) ===
-            "descartado";
-
-
-          if (
-            finalDiscarded &&
-            (
-              stageChanged ||
-              discardChanged
-            )
-          ) {
-            changes.motivo_descarte =
-              discardSelect.value;
-
-
-            if (
-              selectedOptionCode(
-                discardSelect
-              ) ===
-                "NUMERO_ERRONEO"
-            ) {
-              changes.confirmar_numero_erroneo =
-                confirmCheckbox.checked;
-            }
-          }
-
-
-          const editableKeys =
-            Object.keys(
-              changes
-            ).filter(
-              key =>
-                key !==
-                "confirmar_numero_erroneo"
-            );
-
-
-          if (!editableKeys.length) {
-            status.textContent =
-              "No hay cambios por guardar.";
-
-            return;
-          }
-
-
-          if (
-            finalDiscarded &&
-            stageChanged &&
-            !discardSelect.value
-          ) {
-            throw new Error(
-              "Seleccione un motivo de descarte."
-            );
-          }
-
-
-          if (
-            finalDiscarded &&
-            (
-              stageChanged ||
-              discardChanged
-            ) &&
-            selectedOptionCode(
-              discardSelect
-            ) ===
-              "NUMERO_ERRONEO" &&
-            !confirmCheckbox.checked
-          ) {
-            throw new Error(
-              "Revise el teléfono original y marque la confirmación."
-            );
-          }
-
-
-          saveButton.disabled =
-            true;
-
-          resetButton.disabled =
-            true;
-
-          status.textContent =
-            "Guardando...";
-
-
-          await api(
-            "/api/leads/" +
-              encodeURIComponent(
-                crmLeadId
-              ),
-            {
-              method:
-                "PATCH",
-
-              headers: {
-                "Content-Type":
-                  "application/json"
-              },
-
-              body:
-                JSON.stringify({
-                  expected_version:
-                    lead.operational_version,
-
-                  changes:
-                    changes
-                })
-            }
-          );
-
-
-          state.hoy = null;
-          state.leads = null;
-          state.lastHoyLoad = 0;
-          state.lastLeadsLoad = 0;
-
-
-          await renderLeadDetail(
-            crmLeadId,
-            fromView
-          );
-
-        } catch (error) {
-          saveButton.disabled =
-            false;
-
-          resetButton.disabled =
-            false;
-
-          status.className =
-            "save-status error";
-
-          status.textContent =
-            error.message ||
-            "No se pudieron guardar los cambios.";
+    });
+    actions.append(cancel, save);
+    pop.body.append(actions, status);
+  }
+
+  async function saveLeadPatch(lead, crmLeadId, fromView, changes) {
+    await api("/api/leads/" + encodeURIComponent(crmLeadId), {
+      method: "PATCH",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({expected_version: lead.operational_version, changes})
+    });
+    state.hoy = null;
+    state.leads = null;
+    state.lastHoyLoad = 0;
+    state.lastLeadsLoad = 0;
+    await renderLeadDetail(crmLeadId, fromView);
+  }
+
+  function makeDiscardControls(lead, options) {
+    const box = element("div", "discard-box");
+    const select = element("select", "form-control");
+    fillSelectOptions(select, options.motivos_descarte, lead.motivo_descarte, true, "Seleccione un motivo");
+    box.appendChild(popoverField("Motivo de descarte", select));
+
+    const warning = element("div", "phone-warning");
+    warning.appendChild(element("div", "phone-warning-title", "Revise el número antes de descartar"));
+    warning.appendChild(element("div", "phone-warning-line", "Original: " + (lead.telefono_original || "Sin dato")));
+    warning.appendChild(element("div", "phone-warning-line", "Normalizado: " + (lead.telefono_normalizado || lead.telefono || "Sin dato")));
+    warning.appendChild(element("div", "phone-warning-line", "País: " + (lead.pais_telefono || "Sin dato")));
+    const label = element("label", "confirm-line");
+    const confirm = element("input");
+    confirm.type = "checkbox";
+    label.append(confirm, document.createTextNode("Confirmo que revisé el teléfono original y que el número es erróneo."));
+    warning.appendChild(label);
+    box.appendChild(warning);
+
+    const sync = function(show) {
+      box.classList.toggle("visible", show);
+      const phone = show && selectedOptionCode(select) === "NUMERO_ERRONEO";
+      warning.classList.toggle("visible", phone);
+      if (!phone) confirm.checked = false;
+    };
+    select.addEventListener("change", () => sync(box.classList.contains("visible")));
+    return {box, select, confirm, sync};
+  }
+
+  function openStagePopover(lead, options, crmLeadId, fromView) {
+    const pop = openPopover("Cambiar etapa");
+    const select = element("select", "form-control");
+    fillSelectOptions(select, options.etapas, lead.etapa, false, "");
+    pop.body.appendChild(popoverField("Etapa", select));
+
+    const discard = makeDiscardControls(lead, options);
+    pop.body.appendChild(discard.box);
+
+    const appointmentDate = element("input", "form-control");
+    appointmentDate.type = "date";
+    const appointmentTime = element("input", "form-control");
+    appointmentTime.type = "time";
+    const aptParts = parseLeadDateParts(lead.fecha_cita);
+    appointmentDate.value = aptParts.date;
+    appointmentTime.value = aptParts.time;
+    const aptGrid = element("div", "followup-grid");
+    aptGrid.append(appointmentDate, appointmentTime);
+    const aptField = popoverField("Fecha y hora de la cita", aptGrid);
+    aptField.style.display = "none";
+    pop.body.appendChild(aptField);
+
+    const valueInput = element("input", "form-control");
+    valueInput.type = "number";
+    valueInput.min = "1";
+    valueInput.step = "1";
+    valueInput.value = lead.valor_operacion || "";
+    const valueField = popoverField("Valor de operación", valueInput);
+    valueField.style.display = "none";
+    pop.body.appendChild(valueField);
+
+    const sync = function() {
+      const stage = normalized(select.value);
+      discard.sync(stage === "descartado");
+      aptField.style.display = stage === "cita agendada" ? "grid" : "none";
+      valueField.style.display = stage === "compra" ? "grid" : "none";
+    };
+    select.addEventListener("change", sync);
+    sync();
+
+    popoverActions(pop, async function() {
+      const changes = {etapa: select.value};
+      const stage = normalized(select.value);
+      if (stage === "descartado") {
+        if (!discard.select.value) throw new Error("Seleccione un motivo de descarte.");
+        changes.motivo_descarte = discard.select.value;
+        if (selectedOptionCode(discard.select) === "NUMERO_ERRONEO") {
+          if (!discard.confirm.checked) throw new Error("Revise y confirme el teléfono original.");
+          changes.confirmar_numero_erroneo = true;
         }
       }
-    );
+      if (stage === "cita agendada") {
+        if (!appointmentDate.value || !appointmentTime.value) throw new Error("La cita requiere fecha y hora.");
+        changes.fecha_cita = appointmentDate.value + "T" + appointmentTime.value;
+      }
+      if (stage === "compra") {
+        if (!(Number(valueInput.value) > 0)) throw new Error("Capture el valor de operación.");
+        changes.valor_operacion = Number(valueInput.value);
+      }
+      await saveLeadPatch(lead, crmLeadId, fromView, changes);
+    });
+  }
 
+  function openPriorityPopover(lead, options, crmLeadId, fromView) {
+    const pop = openPopover("Cambiar prioridad");
+    const select = element("select", "form-control");
+    const automatic = element("option", "", "Automática");
+    automatic.value = "";
+    select.appendChild(automatic);
+    (options.prioridades || []).forEach(function(option) {
+      const item = element("option", "", option.nombre);
+      item.value = option.nombre;
+      if (option.nombre === lead.prioridad) item.selected = true;
+      select.appendChild(item);
+    });
+    if (!lead.prioridad) automatic.selected = true;
+    pop.body.appendChild(popoverField("Prioridad", select));
+    pop.body.appendChild(element("div", "popover-help", "Automática se recalcula con el tiempo. Una prioridad manual permanece hasta que vuelva a seleccionar Automática."));
+    popoverActions(pop, async function() {
+      await saveLeadPatch(lead, crmLeadId, fromView, {prioridad: select.value});
+    });
+  }
 
-    syncDiscardVisibility();
+  function openFollowupPopover(lead, options, crmLeadId, fromView) {
+    const pop = openPopover("Programar seguimiento");
+    const parts = parseLeadDateParts(lead.proximo_seguimiento);
+    const date = element("input", "form-control");
+    date.type = "date";
+    date.value = parts.date;
+    const time = element("input", "form-control");
+    time.type = "time";
+    time.value = parts.time;
+    const grid = element("div", "followup-grid");
+    grid.append(date, time);
+    pop.body.appendChild(popoverField("Fecha y hora", grid));
 
+    const activity = element("select", "form-control");
+    const blank = element("option", "", "Seleccione una actividad");
+    blank.value = "";
+    activity.appendChild(blank);
+    (options.actividades_seguimiento || []).forEach(function(option) {
+      const item = element("option", "", option.nombre);
+      item.value = option.nombre;
+      item.dataset.codigo = option.codigo || "";
+      item.dataset.etapa = option.etapa_relacionada || "";
+      if (option.nombre === lead.seguimiento_actividad) item.selected = true;
+      activity.appendChild(item);
+    });
+    pop.body.appendChild(popoverField("Qué se va a hacer", activity));
 
-    form.append(
-      stageField,
-      priorityField,
-      followupField,
-      discardBox,
-      actions,
-      status
-    );
+    const note = element("textarea", "form-control form-textarea");
+    note.placeholder = "Ej. Mandarle precios y preguntarle si quiere visitar el proyecto.";
+    note.value = lead.seguimiento_nota || "";
+    pop.body.appendChild(popoverField("Nota / antecedente", note));
 
+    const stageBox = element("div", "stage-link-box");
+    const stageText = element("div", "", "");
+    const stageLabel = element("label", "confirm-line");
+    const stageCheck = element("input");
+    stageCheck.type = "checkbox";
+    stageLabel.append(stageCheck, document.createTextNode(" Sí, cambiar también la etapa"));
+    stageBox.append(stageText, stageLabel);
+    pop.body.appendChild(stageBox);
 
-    return form;
+    const valueInput = element("input", "form-control");
+    valueInput.type = "number";
+    valueInput.min = "1";
+    valueInput.step = "1";
+    valueInput.value = lead.valor_operacion || "";
+    const valueField = popoverField("Valor de operación", valueInput);
+    valueField.classList.add("value-money");
+    pop.body.appendChild(valueField);
+
+    const syncStage = function() {
+      const selected = activity.options[activity.selectedIndex];
+      const linked = selected ? String(selected.dataset.etapa || "") : "";
+      stageBox.classList.toggle("visible", !!linked);
+      stageText.textContent = linked ? "Esta actividad corresponde a la etapa “" + linked + "”. ¿Quiere cambiar también la etapa del lead?" : "";
+      if (!linked) stageCheck.checked = false;
+      const purchase = linked === "Compra" && stageCheck.checked;
+      valueField.classList.toggle("visible", purchase);
+    };
+    activity.addEventListener("change", syncStage);
+    stageCheck.addEventListener("change", syncStage);
+    syncStage();
+
+    popoverActions(pop, async function() {
+      if (!date.value) throw new Error("Seleccione la fecha del seguimiento.");
+      if (!activity.value) throw new Error("Seleccione qué se va a hacer.");
+      const selected = activity.options[activity.selectedIndex];
+      const code = selected ? String(selected.dataset.codigo || "") : "";
+      const linked = selected ? String(selected.dataset.etapa || "") : "";
+      if (code === "OTRO" && !note.value.trim()) throw new Error("Para Otro, indique qué se va a hacer.");
+
+      const followup = time.value ? date.value + "T" + time.value : date.value;
+      const changes = {
+        proximo_seguimiento: followup,
+        seguimiento_actividad: activity.value,
+        seguimiento_nota: note.value.trim()
+      };
+
+      if (linked && stageCheck.checked) {
+        changes.etapa = linked;
+        if (linked === "Cita agendada") {
+          if (!time.value) throw new Error("Una cita requiere hora.");
+          changes.fecha_cita = date.value + "T" + time.value;
+        }
+        if (linked === "Compra") {
+          if (!(Number(valueInput.value) > 0)) throw new Error("Capture el valor de operación.");
+          changes.valor_operacion = Number(valueInput.value);
+        }
+      }
+
+      await saveLeadPatch(lead, crmLeadId, fromView, changes);
+    }, "Programar");
+  }
+
+  function openNamePopover(lead, crmLeadId, fromView) {
+    const pop = openPopover("Editar nombre");
+    const input = element("input", "form-control");
+    input.type = "text";
+    input.value = lead.nombre || "";
+    pop.body.appendChild(popoverField("Nombre", input));
+    popoverActions(pop, async function() {
+      const value = input.value.trim();
+      if (!value) throw new Error("El nombre no puede quedar vacío.");
+      await saveLeadPatch(lead, crmLeadId, fromView, {nombre: value});
+    });
+    setTimeout(() => input.focus(), 20);
+  }
+
+  function openNotePopover(lead, crmLeadId, fromView) {
+    const pop = openPopover("Agregar nota");
+    const textarea = element("textarea", "form-control form-textarea");
+    textarea.placeholder = "Escriba el antecedente que quiere conservar en el historial.";
+    pop.body.appendChild(popoverField("Nota", textarea));
+    popoverActions(pop, async function() {
+      const nota = textarea.value.trim();
+      if (!nota) throw new Error("Escriba una nota.");
+      await api("/api/leads/" + encodeURIComponent(crmLeadId) + "/notes", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({nota})
+      });
+      await renderLeadDetail(crmLeadId, fromView);
+    }, "Agregar");
+    setTimeout(() => textarea.focus(), 20);
   }
 
 
@@ -6763,6 +6692,7 @@ function renderAppPage() {
           [
             lead.proyecto,
             lead.etapa,
+            lead.prioridad_efectiva ? (lead.prioridad_efectiva + " · " + (lead.prioridad_modo || "")) : "",
             lead.telefono
           ]
             .filter(Boolean)
@@ -6785,6 +6715,16 @@ function renderAppPage() {
           "Contacto",
           false
         );
+
+      addEditableInfoRow(
+        contact,
+        "Nombre",
+        lead.nombre || "Sin nombre",
+        "",
+        function() {
+          openNamePopover(lead, crmLeadId, fromView);
+        }
+      );
 
       addInfoRow(
         contact,
@@ -6946,6 +6886,23 @@ function renderAppPage() {
           true
         );
 
+      const noteButton =
+        element(
+          "button",
+          "card-action-button",
+          "Agregar nota"
+        );
+
+      noteButton.type = "button";
+      noteButton.addEventListener(
+        "click",
+        function() {
+          openNotePopover(lead, crmLeadId, fromView);
+        }
+      );
+
+      historyCard.appendChild(noteButton);
+
       const historyList =
         element(
           "div",
@@ -6997,8 +6954,14 @@ function renderAppPage() {
                 top
               );
 
+              const changeLine =
+                event.valor_anterior || event.valor_nuevo
+                  ? [event.valor_anterior || "—", event.valor_nuevo || "—"].join(" → ")
+                  : "";
+
               const detail =
                 [
+                  changeLine,
                   event.detalle,
                   event.mensaje,
                   event.resultado
