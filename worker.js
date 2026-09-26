@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.4.0-write-operations
+ * Version: 0.4.1-write-operations-hotfix
 
  * ============================================================
 
@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.4.0-write-operations";
+const APP_VERSION = "0.4.1-write-operations-hotfix";
 
 
 
@@ -5766,7 +5766,7 @@ function renderAppPage() {
 
     let match =
       text.match(
-        /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/
+        /^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})(?:\\s+(\\d{1,2}):(\\d{2}))?$/
       );
 
 
@@ -5791,7 +5791,7 @@ function renderAppPage() {
 
     match =
       text.match(
-        /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/
+        /^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2})/
       );
 
 
@@ -5817,7 +5817,7 @@ function renderAppPage() {
 
     match =
       text.match(
-        /^(\d{4})-(\d{2})-(\d{2})$/
+        /^(\\d{4})-(\\d{2})-(\\d{2})$/
       );
 
 
