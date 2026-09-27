@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.5.5-iso-persistence-contract-fix
+ * Version: 0.5.8-read-response-stability
 
  * ============================================================
 
@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.5.7-lead-detail-stability";
+const APP_VERSION = "0.5.8-read-response-stability";
 
 
 
@@ -298,12 +298,21 @@ async function routeRequest(request, env) {
 
 
 
+ const meData =
+ upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
+
+ if (!meData || typeof meData !== "object") {
+ throw publicError(
+ 502,
+ "El API no devolvió los datos del usuario."
+ );
+ }
+
  return jsonResponse({
-
  ok: true,
-
- data: upstream.data
-
+ data: meData
  });
 
  }
@@ -356,12 +365,21 @@ async function routeRequest(request, env) {
 
 
 
+ const hoyData =
+ upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
+
+ if (!hoyData || typeof hoyData !== "object") {
+ throw publicError(
+ 502,
+ "El API no devolvió la agenda de Hoy."
+ );
+ }
+
  return jsonResponse({
-
  ok: true,
-
- data: upstream.data
-
+ data: hoyData
  });
 
  }
@@ -478,12 +496,25 @@ async function routeRequest(request, env) {
 
 
 
+ const listData =
+ upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
+
+ if (!listData || typeof listData !== "object" || !Array.isArray(listData.leads)) {
+ throw publicError(
+ 502,
+ "El API no devolvió la lista de leads."
+ );
+ }
+
+ if (!Number.isFinite(Number(listData.total))) {
+ listData.total = listData.leads.length;
+ }
+
  return jsonResponse({
-
  ok: true,
-
- data: upstream.data
-
+ data: listData
  });
 
  }
@@ -5162,6 +5193,10 @@ function renderAppPage() {
  "/api/hoy"
  );
 
+ if (!state.hoy || typeof state.hoy !== "object") {
+ throw new Error("El servidor no devolvió una agenda válida.");
+ }
+
  state.lastHoyLoad =
  Date.now();
 
@@ -5181,6 +5216,14 @@ function renderAppPage() {
  await api(
  "/api/leads?limit=500"
  );
+
+ if (!state.leads || typeof state.leads !== "object" || !Array.isArray(state.leads.leads)) {
+ throw new Error("El servidor no devolvió una lista de leads válida.");
+ }
+
+ if (!Number.isFinite(Number(state.leads.total))) {
+ state.leads.total = state.leads.leads.length;
+ }
 
  state.lastLeadsLoad =
  Date.now();
