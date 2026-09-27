@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.6.3-campaigns-adset-cpm
+ * Version: 0.6.4-campaigns-adset-trend
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.6.3-campaigns-adset-cpm";
+const APP_VERSION = "0.6.4-campaigns-adset-trend";
 
 
 
@@ -8318,7 +8318,7 @@ function renderAppPage() {
  }
 
 
- function buildCampaignTable(campaign) {
+ function buildCampaignTable(source) {
  const wrap = element("div", "campaign-table-wrap");
  const table = element("table", "campaign-table");
  const thead = document.createElement("thead");
@@ -8340,7 +8340,7 @@ function renderAppPage() {
  table.appendChild(thead);
 
  const tbody = document.createElement("tbody");
- (campaign.trend || []).slice().reverse().forEach(function(point) {
+ (source.trend || []).slice().reverse().forEach(function(point) {
  const tr = document.createElement("tr");
  const values = [
  (point.corte_h !== null && point.corte_h !== undefined ? point.corte_h + " h" : "s/d"),
@@ -8411,7 +8411,7 @@ function renderAppPage() {
  }
 
 
- function buildCampaignHierarchy(campaign) {
+ function buildCampaignHierarchy(campaign, onSelectionChange) {
  const hierarchy = campaign.hierarchy || {};
  const adsets = Array.isArray(hierarchy.adsets) ? hierarchy.adsets : [];
  const wrap = element("div", "campaign-hierarchy");
@@ -8431,7 +8431,10 @@ function renderAppPage() {
  details.open = openMap[projectKey] === adsetKey;
 
  details.addEventListener("toggle", function() {
+ let selectionChanged = false;
+
  if (details.open) {
+ if (openMap[projectKey] !== adsetKey) selectionChanged = true;
  openMap[projectKey] = adsetKey;
 
  Array.from(wrap.querySelectorAll("details.campaign-adset")).forEach(function(other) {
@@ -8439,6 +8442,11 @@ function renderAppPage() {
  });
  } else if (openMap[projectKey] === adsetKey) {
  delete openMap[projectKey];
+ selectionChanged = true;
+ }
+
+ if (selectionChanged && typeof onSelectionChange === "function") {
+ onSelectionChange();
  }
  });
 
@@ -8491,6 +8499,48 @@ function renderAppPage() {
  });
 
  return wrap;
+ }
+
+
+ function getSelectedCampaignAdset(campaign) {
+ const projectKey = String(campaign && campaign.proyecto || "");
+ const openMap = state.openCampaignAdsetByProject || {};
+ const selectedKey = openMap[projectKey];
+ const adsets = campaign && campaign.hierarchy && Array.isArray(campaign.hierarchy.adsets)
+ ? campaign.hierarchy.adsets
+ : [];
+
+ if (!selectedKey) return null;
+
+ return adsets.find(function(adset, index) {
+ const key = String(adset.key || adset.nombre || index);
+ return key === selectedKey;
+ }) || null;
+ }
+
+
+ function renderCampaignTrendSection(campaign, section) {
+ if (!section) return;
+
+ const selectedAdset = getSelectedCampaignAdset(campaign);
+ const source = selectedAdset || campaign;
+ const points = Array.isArray(source.trend) ? source.trend : [];
+ const title = selectedAdset
+ ? "Evolución por corte · " + (selectedAdset.nombre || "Conjunto")
+ : "Evolución por corte";
+ const subtitle = selectedAdset
+ ? "Últimos " + Math.min(points.length, 12) + " cortes oficiales guardados de este conjunto."
+ : "Últimos " + Math.min(points.length, 12) + " cortes oficiales guardados de la campaña.";
+
+ section.replaceChildren();
+ section.appendChild(
+ buildCampaignSectionHeader(
+ title,
+ subtitle,
+ null
+ )
+ );
+ section.appendChild(buildCampaignTable(source));
  }
 
 
@@ -8654,6 +8704,8 @@ function renderAppPage() {
  resultSection.appendChild(detailKpis);
  dashboardWrap.appendChild(resultSection);
 
+ let trendSection = null;
+
  const hierarchySection = element("section", "campaign-section");
  hierarchySection.appendChild(
  buildCampaignSectionHeader(
@@ -8662,7 +8714,11 @@ function renderAppPage() {
  null
  )
  );
- hierarchySection.appendChild(buildCampaignHierarchy(selected));
+ hierarchySection.appendChild(
+ buildCampaignHierarchy(selected, function() {
+ if (trendSection) renderCampaignTrendSection(selected, trendSection);
+ })
+ );
  hierarchySection.appendChild(
  element(
  "div",
@@ -8672,15 +8728,8 @@ function renderAppPage() {
  );
  dashboardWrap.appendChild(hierarchySection);
 
- const trendSection = element("section", "campaign-section");
- trendSection.appendChild(
- buildCampaignSectionHeader(
- "Evolución por corte",
- "Últimos " + Math.min((selected.trend || []).length, 12) + " cortes oficiales guardados.",
- null
- )
- );
- trendSection.appendChild(buildCampaignTable(selected));
+ trendSection = element("section", "campaign-section");
+ renderCampaignTrendSection(selected, trendSection);
  dashboardWrap.appendChild(trendSection);
 
  const configSection = element("section", "campaign-section");
