@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.5.1-appointment-date-ui-fixes";
+const APP_VERSION = "0.5.2-smart-date-appointment-confirmation";
 
 
 
@@ -4014,6 +4014,80 @@ function renderAppPage() {
  box-shadow: 0 0 0 3px rgba(0,0,0,.04);
  }
 
+ .form-control.input-invalid {
+ border-color: #d92d20;
+ box-shadow: 0 0 0 3px rgba(217,45,32,.08);
+ }
+
+ .mx-date-control {
+ position: relative;
+ display: grid;
+ grid-template-columns: minmax(0, 1fr) 42px;
+ width: 100%;
+ }
+
+ .mx-date-control .mx-date-text {
+ padding-right: 10px;
+ border-radius: 11px 0 0 11px;
+ }
+
+ .mx-date-picker-wrap {
+ position: relative;
+ min-width: 42px;
+ height: 42px;
+ border: 1px solid var(--line);
+ border-left: 0;
+ border-radius: 0 11px 11px 0;
+ background: #fafaf8;
+ overflow: hidden;
+ }
+
+ .mx-date-picker-wrap::before {
+ content: "";
+ position: absolute;
+ left: 12px;
+ top: 12px;
+ width: 16px;
+ height: 14px;
+ border: 2px solid #555;
+ border-radius: 3px;
+ pointer-events: none;
+ }
+
+ .mx-date-picker-wrap::after {
+ content: "";
+ position: absolute;
+ left: 12px;
+ top: 16px;
+ width: 16px;
+ border-top: 2px solid #555;
+ pointer-events: none;
+ }
+
+ .mx-date-picker {
+ position: absolute;
+ inset: 0;
+ width: 100%;
+ height: 100%;
+ opacity: 0;
+ cursor: pointer;
+ }
+
+ .confirm-box {
+ display: grid;
+ gap: 10px;
+ padding: 12px;
+ border: 1px solid #dddcd6;
+ border-radius: 12px;
+ background: #fafaf8;
+ }
+
+ .confirm-summary {
+ color: #444;
+ font-size: 12px;
+ line-height: 1.45;
+ }
+
  .followup-grid {
  display: grid;
  grid-template-columns: minmax(0, 1fr) 130px;
@@ -6093,15 +6167,31 @@ function renderAppPage() {
 
  function parseMxDateInput(value) {
  const text = String(value || "").trim();
- const match = text.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);
+ if (!text) return "";
 
- if (!match) {
+ let day;
+ let month;
+ let year;
+
+ const compact = text.replace(/\\D/g, "");
+ const slashMatch = text.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);
+
+ if (/^\\d{8}$/.test(compact) && text.indexOf("/") === -1) {
+ day = Number(compact.slice(0, 2));
+ month = Number(compact.slice(2, 4));
+ year = Number(compact.slice(4, 8));
+ } else if (slashMatch) {
+ day = Number(slashMatch[1]);
+ month = Number(slashMatch[2]);
+ year = Number(slashMatch[3]);
+ } else {
  return "";
  }
 
- const day = Number(match[1]);
- const month = Number(match[2]);
- const year = Number(match[3]);
+ if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1000 || year > 9999) {
+ return "";
+ }
+
  const date = new Date(year, month - 1, day, 12, 0, 0);
 
  if (
@@ -6122,15 +6212,145 @@ function renderAppPage() {
  }
 
 
+ function mxDateDisplayFromIso(isoDate) {
+ const match = String(isoDate || "").match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+ if (!match) return "";
+ return match[3] + "/" + match[2] + "/" + match[1];
+ }
+
+
+ function normalizeMxDateField(input) {
+ const raw = String(input.value || "").trim();
+ if (!raw) {
+ input.classList.remove("input-invalid");
+ input.removeAttribute("title");
+ return "";
+ }
+
+ const iso = parseMxDateInput(raw);
+ if (!iso) {
+ input.classList.add("input-invalid");
+ input.title = "Fecha inválida. Use DD/MM/AAAA.";
+ return "";
+ }
+
+ input.value = mxDateDisplayFromIso(iso);
+ input.classList.remove("input-invalid");
+ input.removeAttribute("title");
+ return iso;
+ }
+
+
  function configureMxDateInput(input, value) {
  input.type = "text";
  input.inputMode = "numeric";
  input.autocomplete = "off";
- input.placeholder = "dd/mm/aaaa";
+ input.placeholder = "DD/MM/AAAA";
  input.maxLength = 10;
  input.value = formatMxDateInput(value);
- input.setAttribute("aria-label", "Fecha en formato dd/mm/aaaa");
+ input.setAttribute("aria-label", "Fecha en formato DD/MM/AAAA");
+
+ input.addEventListener("input", function() {
+ const original = String(input.value || "");
+ const cleaned = original.replace(/[^0-9/]/g, "").slice(0, 10);
+ if (cleaned !== original) input.value = cleaned;
+ input.classList.remove("input-invalid");
+ input.removeAttribute("title");
+ });
+
+ input.addEventListener("blur", function() {
+ normalizeMxDateField(input);
+ });
+
  return input;
+ }
+
+
+ function createMxDateControl(value) {
+ const root = element("div", "mx-date-control");
+ const input = element("input", "form-control mx-date-text");
+ configureMxDateInput(input, value);
+
+ const pickerWrap = element("div", "mx-date-picker-wrap");
+ pickerWrap.setAttribute("aria-label", "Abrir calendario");
+ const picker = element("input", "mx-date-picker");
+ picker.type = "date";
+ const initial = parseLeadDateParts(value).date;
+ picker.value = initial || "";
+
+ picker.addEventListener("change", function() {
+ if (!picker.value) return;
+ input.value = mxDateDisplayFromIso(picker.value);
+ input.classList.remove("input-invalid");
+ input.removeAttribute("title");
+ });
+
+ input.addEventListener("blur", function() {
+ const iso = parseMxDateInput(input.value);
+ if (iso) picker.value = iso;
+ });
+
+ pickerWrap.appendChild(picker);
+ root.append(input, pickerWrap);
+ return {root, input, picker};
+ }
+
+
+ function localDateTimeFromIso(dateIso, timeValue) {
+ const dateMatch = String(dateIso || "").match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+ const timeMatch = String(timeValue || "").match(/^(\\d{2}):(\\d{2})$/);
+ if (!dateMatch || !timeMatch) return null;
+ const date = new Date(
+ Number(dateMatch[1]),
+ Number(dateMatch[2]) - 1,
+ Number(dateMatch[3]),
+ Number(timeMatch[1]),
+ Number(timeMatch[2]),
+ 0,
+ 0
+ );
+ return isNaN(date.getTime()) ? null : date;
+ }
+
+
+ function localIsoDateTime(date) {
+ if (!(date instanceof Date) || isNaN(date.getTime())) return "";
+ return (
+ String(date.getFullYear()).padStart(4, "0") + "-" +
+ String(date.getMonth() + 1).padStart(2, "0") + "-" +
+ String(date.getDate()).padStart(2, "0") + "T" +
+ String(date.getHours()).padStart(2, "0") + ":" +
+ String(date.getMinutes()).padStart(2, "0")
+ );
+ }
+
+
+ function confirmationDateTime(mode, appointmentDateIso, appointmentTime, customDateValue, customTimeValue) {
+ const appointment = localDateTimeFromIso(appointmentDateIso, appointmentTime);
+ if (!appointment) return "";
+
+ let reminder;
+
+ if (mode === "24h") {
+ reminder = new Date(appointment.getTime() - 24 * 60 * 60 * 1000);
+ } else if (mode === "morning") {
+ reminder = new Date(
+ appointment.getFullYear(),
+ appointment.getMonth(),
+ appointment.getDate(),
+ 9,
+ 0,
+ 0,
+ 0
+ );
+ } else if (mode === "custom") {
+ const customDateIso = parseMxDateInput(customDateValue);
+ reminder = localDateTimeFromIso(customDateIso, customTimeValue);
+ }
+
+ if (!reminder || isNaN(reminder.getTime())) return "";
+ if (reminder.getTime() >= appointment.getTime()) return "";
+ return localIsoDateTime(reminder);
  }
 
 
@@ -6406,17 +6626,60 @@ function renderAppPage() {
  const discard = makeDiscardControls(lead, options);
  pop.body.appendChild(discard.box);
 
- const appointmentDate = element("input", "form-control");
- configureMxDateInput(appointmentDate, lead.fecha_cita);
+ const appointmentDateControl = createMxDateControl(lead.fecha_cita);
+ const appointmentDate = appointmentDateControl.input;
  const appointmentTime = element("input", "form-control");
  appointmentTime.type = "time";
  const aptParts = parseLeadDateParts(lead.fecha_cita);
  appointmentTime.value = aptParts.time;
  const aptGrid = element("div", "followup-grid");
- aptGrid.append(appointmentDate, appointmentTime);
+ aptGrid.append(appointmentDateControl.root, appointmentTime);
  const aptField = popoverField("Fecha y hora de la cita", aptGrid);
  aptField.style.display = "none";
  pop.body.appendChild(aptField);
+
+ const confirmBox = element("div", "confirm-box");
+ const confirmMode = element("select", "form-control");
+ [
+ ["24h", "24 horas antes (recomendado)"],
+ ["morning", "El mismo día a las 9:00 a.m."],
+ ["custom", "Elegir fecha y hora"]
+ ].forEach(function(item) {
+ const option = element("option", "", item[1]);
+ option.value = item[0];
+ confirmMode.appendChild(option);
+ });
+ confirmBox.appendChild(popoverField("Cuándo confirmar la cita", confirmMode));
+
+ const confirmChannel = element("select", "form-control");
+ ["WhatsApp / Mensaje", "Llamada"].forEach(function(name) {
+ const option = element("option", "", name);
+ option.value = name;
+ confirmChannel.appendChild(option);
+ });
+ confirmBox.appendChild(popoverField("Cómo la vas a confirmar", confirmChannel));
+
+ const customConfirmDateControl = createMxDateControl("");
+ const customConfirmDate = customConfirmDateControl.input;
+ const customConfirmTime = element("input", "form-control");
+ customConfirmTime.type = "time";
+ const customConfirmGrid = element("div", "followup-grid");
+ customConfirmGrid.append(customConfirmDateControl.root, customConfirmTime);
+ const customConfirmField = popoverField("Fecha y hora de confirmación", customConfirmGrid);
+ customConfirmField.style.display = "none";
+ confirmBox.appendChild(customConfirmField);
+
+ const confirmSummary = element("div", "confirm-summary",
+ "Se guardará como Próximo seguimiento. Confirmar la cita no cambia la etapa ni envía otro evento CAPI.");
+ confirmBox.appendChild(confirmSummary);
+ confirmBox.style.display = "none";
+ pop.body.appendChild(confirmBox);
+
+ const syncConfirmMode = function() {
+ customConfirmField.style.display = confirmMode.value === "custom" ? "grid" : "none";
+ };
+ confirmMode.addEventListener("change", syncConfirmMode);
+ syncConfirmMode();
 
  const valueInput = element("input", "form-control");
  valueInput.type = "number";
@@ -6431,6 +6694,7 @@ function renderAppPage() {
  const stage = normalized(select.value);
  discard.sync(stage === "descartado");
  aptField.style.display = stage === "cita agendada" ? "grid" : "none";
+ confirmBox.style.display = stage === "cita agendada" ? "grid" : "none";
  valueField.style.display = stage === "compra" ? "grid" : "none";
  };
  select.addEventListener("change", sync);
@@ -6449,9 +6713,31 @@ function renderAppPage() {
  }
  if (stage === "cita agendada") {
  const appointmentDateValue = parseMxDateInput(appointmentDate.value);
- if (!appointmentDateValue) throw new Error("Capture la fecha de la cita como dd/mm/aaaa.");
+ if (!appointmentDateValue) throw new Error("Capture una fecha válida en formato DD/MM/AAAA. También puede escribir 8 dígitos, por ejemplo 02102026.");
+ appointmentDate.value = mxDateDisplayFromIso(appointmentDateValue);
  if (!appointmentTime.value) throw new Error("La cita requiere hora.");
  changes.fecha_cita = appointmentDateValue + "T" + appointmentTime.value;
+
+ const reminder = confirmationDateTime(
+ confirmMode.value,
+ appointmentDateValue,
+ appointmentTime.value,
+ customConfirmDate.value,
+ customConfirmTime.value
+ );
+
+ if (!reminder) {
+ throw new Error("La confirmación debe tener una fecha y hora válidas anteriores a la cita.");
+ }
+
+ changes.proximo_seguimiento = reminder;
+ changes.seguimiento_actividad = confirmChannel.value;
+ changes.seguimiento_nota =
+ "Confirmar cita del " +
+ mxDateDisplayFromIso(appointmentDateValue) +
+ " a las " +
+ appointmentTime.value +
+ ".";
  }
  if (stage === "compra") {
  if (!(Number(valueInput.value) > 0)) throw new Error("Capture el valor de operación.");
@@ -6484,13 +6770,13 @@ function renderAppPage() {
  function openFollowupPopover(lead, options, crmLeadId, fromView) {
  const pop = openPopover("Programar seguimiento");
  const parts = parseLeadDateParts(lead.proximo_seguimiento);
- const date = element("input", "form-control");
- configureMxDateInput(date, lead.proximo_seguimiento);
+ const dateControl = createMxDateControl(lead.proximo_seguimiento);
+ const date = dateControl.input;
  const time = element("input", "form-control");
  time.type = "time";
  time.value = parts.time;
  const grid = element("div", "followup-grid");
- grid.append(date, time);
+ grid.append(dateControl.root, time);
  pop.body.appendChild(popoverField("Fecha y hora", grid));
 
  const activity = element("select", "form-control");
@@ -6545,7 +6831,8 @@ function renderAppPage() {
 
  popoverActions(pop, async function() {
  const followupDateValue = parseMxDateInput(date.value);
- if (!followupDateValue) throw new Error("Capture la fecha del seguimiento como dd/mm/aaaa.");
+ if (!followupDateValue) throw new Error("Capture una fecha válida en formato DD/MM/AAAA. También puede escribir 8 dígitos, por ejemplo 02102026.");
+ date.value = mxDateDisplayFromIso(followupDateValue);
  if (!activity.value) throw new Error("Seleccione qué se va a hacer.");
  const selected = activity.options[activity.selectedIndex];
  const code = selected ? String(selected.dataset.codigo || "") : "";
