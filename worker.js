@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.5.8-read-response-stability
+ * Version: 0.6.1-campaigns-readonly-hierarchy
 
  * ============================================================
 
@@ -26,6 +26,8 @@
 
  * - /api/leads/:crm_lead_id
 
+ * - /api/campaigns
+
  * - Proxy seguro a Apps Script
 
  *
@@ -36,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.5.8-read-response-stability";
+const APP_VERSION = "0.6.1-campaigns-readonly-hierarchy";
 
 
 
@@ -521,6 +523,54 @@ async function routeRequest(request, env) {
 
 
 
+
+
+ /**
+
+ * API CAMPAIGNS DASHBOARD — SOLO LECTURA
+
+ */
+
+ if (
+ url.pathname === "/api/campaigns" &&
+ method === "GET"
+ ) {
+ const session =
+ await requireSession(
+ request,
+ env
+ );
+
+ const upstream =
+ await callAppsScript(
+ env,
+ session.email,
+ {
+ action: "campaigns.dashboard"
+ }
+ );
+
+ const campaignData =
+ upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
+
+ if (
+ !campaignData ||
+ typeof campaignData !== "object" ||
+ !Array.isArray(campaignData.campaigns)
+ ) {
+ throw publicError(
+ 502,
+ "El API no devolvió las métricas de campañas."
+ );
+ }
+
+ return jsonResponse({
+ ok: true,
+ data: campaignData
+ });
+ }
 
 
  /**
@@ -4307,6 +4357,411 @@ function renderAppPage() {
  line-height: 1.5;
  }
 
+ .campaign-dashboard {
+ display: grid;
+ gap: 18px;
+ }
+
+ .campaign-summary-grid {
+ display: grid;
+ grid-template-columns: repeat(4, minmax(0, 1fr));
+ gap: 12px;
+ }
+
+ .campaign-kpi {
+ padding: 16px;
+ border: 1px solid var(--line);
+ border-radius: 16px;
+ background: #fff;
+ }
+
+ .campaign-kpi-label {
+ color: var(--muted);
+ font-size: 12px;
+ font-weight: 720;
+ }
+
+ .campaign-kpi-value {
+ margin-top: 7px;
+ font-size: 27px;
+ line-height: 1;
+ font-weight: 800;
+ letter-spacing: -.03em;
+ }
+
+ .campaign-kpi-note {
+ margin-top: 7px;
+ color: var(--muted);
+ font-size: 11px;
+ line-height: 1.35;
+ }
+
+ .campaign-list {
+ display: grid;
+ grid-template-columns: repeat(2, minmax(0, 1fr));
+ gap: 12px;
+ }
+
+ .campaign-card {
+ width: 100%;
+ text-align: left;
+ border: 1px solid var(--line);
+ border-radius: 17px;
+ padding: 17px;
+ background: #fff;
+ color: inherit;
+ cursor: pointer;
+ transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+ }
+
+ .campaign-card:hover {
+ border-color: #bcbcb5;
+ transform: translateY(-1px);
+ }
+
+ .campaign-card.active {
+ border-color: #111;
+ box-shadow: 0 0 0 1px #111 inset;
+ }
+
+ .campaign-card-top,
+ .campaign-section-head {
+ display: flex;
+ align-items: flex-start;
+ justify-content: space-between;
+ gap: 12px;
+ }
+
+ .campaign-card-title {
+ font-size: 17px;
+ font-weight: 800;
+ }
+
+ .campaign-card-meta {
+ margin-top: 4px;
+ color: var(--muted);
+ font-size: 12px;
+ line-height: 1.4;
+ }
+
+ .campaign-status {
+ display: inline-flex;
+ align-items: center;
+ gap: 6px;
+ min-height: 28px;
+ padding: 0 9px;
+ border: 1px solid #d8e7dc;
+ border-radius: 999px;
+ background: #f4fbf6;
+ color: #176b3a;
+ font-size: 11px;
+ font-weight: 780;
+ white-space: nowrap;
+ }
+
+ .campaign-status::before {
+ content: "";
+ width: 7px;
+ height: 7px;
+ border-radius: 50%;
+ background: #1b9a57;
+ }
+
+ .campaign-status.inactive {
+ border-color: var(--line);
+ background: #fafaf8;
+ color: #666;
+ }
+
+ .campaign-status.inactive::before {
+ background: #999;
+ }
+
+ .campaign-card-metrics {
+ display: grid;
+ grid-template-columns: repeat(4, minmax(0, 1fr));
+ gap: 8px;
+ margin-top: 15px;
+ }
+
+ .campaign-mini-label {
+ color: var(--muted);
+ font-size: 10px;
+ font-weight: 700;
+ }
+
+ .campaign-mini-value {
+ margin-top: 3px;
+ font-size: 15px;
+ font-weight: 780;
+ }
+
+ .campaign-section {
+ padding: 18px;
+ border: 1px solid var(--line);
+ border-radius: 17px;
+ background: #fff;
+ }
+
+ .campaign-section-title {
+ margin: 0;
+ font-size: 18px;
+ font-weight: 800;
+ }
+
+ .campaign-section-sub {
+ margin-top: 4px;
+ color: var(--muted);
+ font-size: 12px;
+ line-height: 1.4;
+ }
+
+ .campaign-detail-kpis {
+ display: grid;
+ grid-template-columns: repeat(6, minmax(0, 1fr));
+ gap: 9px;
+ margin-top: 16px;
+ }
+
+ .campaign-detail-kpi {
+ padding: 13px;
+ border: 1px solid #ebeae5;
+ border-radius: 13px;
+ background: #fafaf8;
+ }
+
+ .campaign-detail-value {
+ margin-top: 5px;
+ font-size: 18px;
+ font-weight: 800;
+ }
+
+ .campaign-delta {
+ margin-top: 5px;
+ color: var(--muted);
+ font-size: 10px;
+ line-height: 1.35;
+ }
+
+ .campaign-compare-grid {
+ display: grid;
+ grid-template-columns: repeat(2, minmax(0, 1fr));
+ gap: 10px;
+ margin-top: 14px;
+ }
+
+ .campaign-creative-card {
+ padding: 15px;
+ border: 1px solid #e3e2dd;
+ border-radius: 14px;
+ background: #fff;
+ }
+
+ .campaign-creative-title {
+ font-size: 14px;
+ font-weight: 800;
+ }
+
+ .campaign-creative-meta {
+ margin-top: 3px;
+ color: var(--muted);
+ font-size: 11px;
+ }
+
+ .campaign-creative-metrics {
+ display: grid;
+ grid-template-columns: repeat(4, minmax(0, 1fr));
+ gap: 8px;
+ margin-top: 12px;
+ }
+
+ .campaign-bar {
+ height: 6px;
+ margin-top: 12px;
+ border-radius: 999px;
+ background: #ecebe6;
+ overflow: hidden;
+ }
+
+ .campaign-bar > span {
+ display: block;
+ height: 100%;
+ border-radius: inherit;
+ background: #111;
+ }
+
+ .campaign-table-wrap {
+ margin-top: 14px;
+ overflow-x: auto;
+ border: 1px solid #e8e7e2;
+ border-radius: 13px;
+ }
+
+ .campaign-table {
+ width: 100%;
+ min-width: 720px;
+ border-collapse: collapse;
+ font-size: 12px;
+ }
+
+ .campaign-table th,
+ .campaign-table td {
+ padding: 10px 11px;
+ border-bottom: 1px solid #efeee9;
+ text-align: right;
+ white-space: nowrap;
+ }
+
+ .campaign-table th:first-child,
+ .campaign-table td:first-child {
+ text-align: left;
+ }
+
+ .campaign-table th {
+ color: var(--muted);
+ font-size: 10px;
+ font-weight: 780;
+ letter-spacing: .02em;
+ text-transform: uppercase;
+ background: #fafaf8;
+ }
+
+ .campaign-table tr:last-child td {
+ border-bottom: 0;
+ }
+
+ .campaign-config-grid {
+ display: grid;
+ grid-template-columns: repeat(3, minmax(0, 1fr));
+ gap: 10px;
+ margin-top: 14px;
+ }
+
+ .campaign-config-item {
+ padding: 12px 13px;
+ border: 1px solid #ebeae5;
+ border-radius: 12px;
+ background: #fafaf8;
+ }
+
+ .campaign-config-value {
+ margin-top: 4px;
+ font-size: 13px;
+ font-weight: 760;
+ }
+
+ .campaign-source-note {
+ color: var(--muted);
+ font-size: 11px;
+ line-height: 1.45;
+ }
+
+ .campaign-warning-stack {
+ display: grid;
+ gap: 8px;
+ margin-top: 14px;
+ }
+
+ .campaign-warning {
+ padding: 11px 13px;
+ border: 1px solid #ead7a1;
+ border-radius: 12px;
+ background: #fffaf0;
+ color: #6d5312;
+ font-size: 12px;
+ line-height: 1.4;
+ }
+
+ .campaign-hierarchy {
+ display: grid;
+ gap: 10px;
+ margin-top: 14px;
+ }
+
+ .campaign-adset {
+ border: 1px solid #e5e4df;
+ border-radius: 14px;
+ background: #fff;
+ overflow: hidden;
+ }
+
+ .campaign-adset > summary {
+ list-style: none;
+ cursor: pointer;
+ padding: 14px 15px;
+ }
+
+ .campaign-adset > summary::-webkit-details-marker {
+ display: none;
+ }
+
+ .campaign-adset-summary {
+ display: grid;
+ grid-template-columns: minmax(180px, 1.2fr) repeat(6, minmax(72px, .65fr));
+ gap: 10px;
+ align-items: center;
+ }
+
+ .campaign-entity-name {
+ font-size: 14px;
+ font-weight: 800;
+ min-width: 0;
+ }
+
+ .campaign-entity-meta {
+ margin-top: 3px;
+ color: var(--muted);
+ font-size: 10px;
+ line-height: 1.35;
+ }
+
+ .campaign-adset-arrow {
+ display: inline-block;
+ margin-right: 6px;
+ color: var(--muted);
+ transition: transform .15s ease;
+ }
+
+ .campaign-adset[open] .campaign-adset-arrow {
+ transform: rotate(90deg);
+ }
+
+ .campaign-ad-list {
+ display: grid;
+ gap: 8px;
+ padding: 0 12px 12px;
+ border-top: 1px solid #efeee9;
+ background: #fafaf8;
+ }
+
+ .campaign-ad-card {
+ display: grid;
+ grid-template-columns: minmax(180px, 1.2fr) repeat(6, minmax(72px, .65fr));
+ gap: 10px;
+ align-items: center;
+ padding: 12px;
+ border: 1px solid #e8e7e2;
+ border-radius: 12px;
+ background: #fff;
+ }
+
+ .campaign-hierarchy-secondary {
+ grid-column: 1 / -1;
+ color: var(--muted);
+ font-size: 10px;
+ line-height: 1.35;
+ }
+
+ .campaign-readonly-note {
+ margin-top: 12px;
+ padding: 10px 12px;
+ border-radius: 11px;
+ background: #f6f6f3;
+ color: var(--muted);
+ font-size: 11px;
+ line-height: 1.45;
+ }
+
  .loading {
  display: grid;
  place-items: center;
@@ -4333,11 +4788,46 @@ function renderAppPage() {
  .counter-grid {
  grid-template-columns: repeat(3, minmax(0, 1fr));
  }
+
+ .campaign-summary-grid {
+ grid-template-columns: repeat(2, minmax(0, 1fr));
+ }
+
+ .campaign-detail-kpis {
+ grid-template-columns: repeat(3, minmax(0, 1fr));
+ }
  }
 
  @media (max-width: 760px) {
  :root {
  --nav-width: 0px;
+ }
+
+ .campaign-summary-grid,
+ .campaign-list,
+ .campaign-compare-grid,
+ .campaign-config-grid {
+ grid-template-columns: 1fr;
+ }
+
+ .campaign-detail-kpis {
+ grid-template-columns: repeat(2, minmax(0, 1fr));
+ }
+
+ .campaign-card-metrics,
+ .campaign-creative-metrics {
+ grid-template-columns: repeat(2, minmax(0, 1fr));
+ }
+
+ .campaign-adset-summary,
+ .campaign-ad-card {
+ grid-template-columns: repeat(2, minmax(0, 1fr));
+ }
+
+ .campaign-adset-summary > :first-child,
+ .campaign-ad-card > :first-child,
+ .campaign-hierarchy-secondary {
+ grid-column: 1 / -1;
  }
 
  .sidebar {
@@ -4588,6 +5078,8 @@ function renderAppPage() {
  me: null,
  hoy: null,
  leads: null,
+ campaigns: null,
+ selectedCampaignProject: "",
  currentView: "hoy",
  hoySearch: "",
  leadsSearch: "",
@@ -4595,7 +5087,8 @@ function renderAppPage() {
  leadsProject: "",
  loadingDetailId: "",
  lastHoyLoad: 0,
- lastLeadsLoad: 0
+ lastLeadsLoad: 0,
+ lastCampaignLoad: 0
  };
 
  const VIEW_TITLES = {
@@ -5132,7 +5625,7 @@ function renderAppPage() {
  } else if (
  route.view === "campanas"
  ) {
- renderCampanas();
+ await renderCampanas();
  } else {
  renderMas();
  }
@@ -5229,6 +5722,39 @@ function renderAppPage() {
  Date.now();
 
  return state.leads;
+ }
+
+
+ async function loadCampaigns(force) {
+ const now = Date.now();
+ if (
+ state.campaigns &&
+ !force &&
+ state.lastCampaignLoad &&
+ now - state.lastCampaignLoad < 60 * 1000
+ ) {
+ return state.campaigns;
+ }
+
+ state.campaigns =
+ await api(
+ "/api/campaigns"
+ );
+
+ if (
+ !state.campaigns ||
+ typeof state.campaigns !== "object" ||
+ !Array.isArray(state.campaigns.campaigns)
+ ) {
+ throw new Error(
+ "El servidor no devolvió métricas de campañas válidas."
+ );
+ }
+
+ state.lastCampaignLoad =
+ Date.now();
+
+ return state.campaigns;
  }
 
 
@@ -7688,76 +8214,494 @@ function renderAppPage() {
  }
 
 
- function renderCampanas() {
- const content =
- clearContent();
+ function formatCampaignMoney(value) {
+ if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) {
+ return "s/d";
+ }
+
+ return new Intl.NumberFormat(
+ "es-MX",
+ {
+ style: "currency",
+ currency: "MXN",
+ maximumFractionDigits: 0
+ }
+ ).format(Number(value));
+ }
+
+
+ function formatCampaignNumber(value) {
+ if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) {
+ return "s/d";
+ }
+
+ return new Intl.NumberFormat(
+ "es-MX",
+ {
+ maximumFractionDigits: 0
+ }
+ ).format(Number(value));
+ }
+
+
+ function formatCampaignPercent(value) {
+ if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) {
+ return "s/d";
+ }
+
+ return new Intl.NumberFormat(
+ "es-MX",
+ {
+ style: "percent",
+ minimumFractionDigits: 1,
+ maximumFractionDigits: 2
+ }
+ ).format(Number(value));
+ }
+
+
+ function formatCampaignDateTime(value) {
+ if (!value) return "s/d";
+ return formatDateValue(value, true) || String(value);
+ }
+
+
+ function campaignStatusBadge(status) {
+ const normalizedStatus = normalized(status);
+ const badge = element(
+ "span",
+ "campaign-status" + (normalizedStatus === "activa" ? "" : " inactive"),
+ status || "Sin estado"
+ );
+ return badge;
+ }
+
+
+ function campaignKpi(label, value, note) {
+ const card = element("section", "campaign-kpi");
+ card.appendChild(element("div", "campaign-kpi-label", label));
+ card.appendChild(element("div", "campaign-kpi-value", value));
+ if (note) {
+ card.appendChild(element("div", "campaign-kpi-note", note));
+ }
+ return card;
+ }
+
+
+ function campaignMini(label, value) {
+ const wrap = element("div", "");
+ wrap.appendChild(element("div", "campaign-mini-label", label));
+ wrap.appendChild(element("div", "campaign-mini-value", value));
+ return wrap;
+ }
+
+
+ function campaignPreviousNote(previous, key, formatter) {
+ if (!previous || previous[key] === null || previous[key] === undefined) {
+ return "Sin corte anterior comparable";
+ }
+ return "Corte anterior: " + formatter(previous[key]);
+ }
+
+
+ function buildCampaignSectionHeader(title, subtitle, trailing) {
+ const head = element("div", "campaign-section-head");
+ const text = element("div", "");
+ text.appendChild(element("h3", "campaign-section-title", title));
+ if (subtitle) {
+ text.appendChild(element("div", "campaign-section-sub", subtitle));
+ }
+ head.appendChild(text);
+ if (trailing) head.appendChild(trailing);
+ return head;
+ }
+
+
+ function buildCampaignTable(campaign) {
+ const wrap = element("div", "campaign-table-wrap");
+ const table = element("table", "campaign-table");
+ const thead = document.createElement("thead");
+ const headRow = document.createElement("tr");
+ [
+ "Corte",
+ "Gasto",
+ "Leads",
+ "CPL",
+ "CTR enlace",
+ "CPC enlace",
+ "Conv. clic → lead"
+ ].forEach(function(label) {
+ const th = document.createElement("th");
+ th.textContent = label;
+ headRow.appendChild(th);
+ });
+ thead.appendChild(headRow);
+ table.appendChild(thead);
+
+ const tbody = document.createElement("tbody");
+ (campaign.trend || []).slice().reverse().forEach(function(point) {
+ const tr = document.createElement("tr");
+ const values = [
+ (point.corte_h !== null && point.corte_h !== undefined ? point.corte_h + " h" : "s/d"),
+ formatCampaignMoney(point.gasto),
+ formatCampaignNumber(point.leads),
+ formatCampaignMoney(point.cpl),
+ formatCampaignPercent(point.ctr_enlace),
+ formatCampaignMoney(point.cpc_enlace),
+ formatCampaignPercent(point.conversion_clic_lead)
+ ];
+ values.forEach(function(value, index) {
+ const td = document.createElement("td");
+ td.textContent = value;
+ if (index === 0 && point.fecha_corte) {
+ td.title = formatCampaignDateTime(point.fecha_corte);
+ }
+ tr.appendChild(td);
+ });
+ tbody.appendChild(tr);
+ });
+ table.appendChild(tbody);
+ wrap.appendChild(table);
+ return wrap;
+ }
+
+
+ function campaignTypeLabel(value) {
+ const type = normalized(value);
+ if (type === "instant_form") return "Instant Form";
+ if (type === "landing") return "Landing";
+ if (type === "mixed") return "Mixto";
+ return value || "";
+ }
+
+
+ function campaignMetricCells(metrics) {
+ const m = metrics || {};
+ return [
+ campaignMini("Gasto", formatCampaignMoney(m.gasto)),
+ campaignMini("Leads", formatCampaignNumber(m.leads)),
+ campaignMini("CPL", formatCampaignMoney(m.cpl)),
+ campaignMini("CTR", formatCampaignPercent(m.ctr_enlace)),
+ campaignMini("CPC", formatCampaignMoney(m.cpc_enlace)),
+ campaignMini("Conversión", formatCampaignPercent(m.conversion_clic_lead))
+ ];
+ }
+
+
+ function campaignSecondaryMetrics(metrics) {
+ const m = metrics || {};
+ return "Impresiones " + formatCampaignNumber(m.impresiones) +
+ " · Alcance " + formatCampaignNumber(m.alcance) +
+ " · Clics enlace " + formatCampaignNumber(m.clics_enlace);
+ }
+
+
+ function buildCampaignHierarchy(campaign) {
+ const hierarchy = campaign.hierarchy || {};
+ const adsets = Array.isArray(hierarchy.adsets) ? hierarchy.adsets : [];
+ const wrap = element("div", "campaign-hierarchy");
+
+ if (!adsets.length) {
+ wrap.appendChild(element("div", "empty-state", "No hay desglose por conjunto/anuncio para este corte oficial."));
+ return wrap;
+ }
+
+ adsets.forEach(function(adset, index) {
+ const details = document.createElement("details");
+ details.className = "campaign-adset";
+ if (index === 0) details.open = true;
+
+ const summary = document.createElement("summary");
+ const grid = element("div", "campaign-adset-summary");
+ const title = element("div", "");
+ const titleLine = element("div", "campaign-entity-name");
+ titleLine.appendChild(element("span", "campaign-adset-arrow", "›"));
+ titleLine.appendChild(document.createTextNode(adset.nombre || "Conjunto sin nombre"));
+ title.appendChild(titleLine);
+ title.appendChild(
+ element(
+ "div",
+ "campaign-entity-meta",
+ [adset.formato, campaignTypeLabel(adset.tipo_conversion), ((adset.ads || []).length + " anuncio" + ((adset.ads || []).length === 1 ? "" : "s"))]
+ .filter(Boolean)
+ .join(" · ")
+ )
+ );
+ grid.appendChild(title);
+ campaignMetricCells(adset.metrics).forEach(function(cell) { grid.appendChild(cell); });
+ grid.appendChild(element("div", "campaign-hierarchy-secondary", campaignSecondaryMetrics(adset.metrics)));
+ summary.appendChild(grid);
+ details.appendChild(summary);
+
+ const adList = element("div", "campaign-ad-list");
+ const ads = Array.isArray(adset.ads) ? adset.ads : [];
+ if (!ads.length) {
+ adList.appendChild(element("div", "campaign-source-note", "No hay anuncios registrados para este conjunto en el mismo corte."));
+ } else {
+ ads.forEach(function(ad) {
+ const card = element("div", "campaign-ad-card");
+ const name = element("div", "");
+ name.appendChild(element("div", "campaign-entity-name", ad.nombre || "Anuncio sin nombre"));
+ name.appendChild(
+ element(
+ "div",
+ "campaign-entity-meta",
+ [ad.formato, campaignTypeLabel(ad.tipo_conversion)].filter(Boolean).join(" · ")
+ )
+ );
+ card.appendChild(name);
+ campaignMetricCells(ad.metrics).forEach(function(cell) { card.appendChild(cell); });
+ card.appendChild(element("div", "campaign-hierarchy-secondary", campaignSecondaryMetrics(ad.metrics)));
+ adList.appendChild(card);
+ });
+ }
+ details.appendChild(adList);
+ wrap.appendChild(details);
+ });
+
+ return wrap;
+ }
+
+
+ function buildCampaignWarnings(campaign) {
+ const warnings = [];
+ if (!campaign.metricas_activa) warnings.push("Métricas desactivadas en Control Campañas (columna F). Los datos pueden dejar de actualizarse.");
+ if (!campaign.crm_sync_activo) warnings.push("Sincronización CRM desactivada en Control Campañas (columna G). Los nuevos leads pueden no entrar al CRM.");
+ if (!campaign.capi_activa) warnings.push("CAPI desactivada en Control Campañas (columna H). No se enviarán señales comerciales nuevas a Meta.");
+ if (!warnings.length) return null;
+
+ const stack = element("div", "campaign-warning-stack");
+ warnings.forEach(function(text) {
+ stack.appendChild(element("div", "campaign-warning", "⚠ " + text));
+ });
+ return stack;
+ }
+
+
+ async function renderCampanas(force, silent) {
+ const content = clearContent();
+
+ if (!silent) {
+ content.className = "loading";
+ content.textContent = "Cargando campañas...";
+ }
+
+ try {
+ const dashboard = await loadCampaigns(!!force);
+ const campaigns = Array.isArray(dashboard.campaigns) ? dashboard.campaigns : [];
+
+ content.className = "";
+ content.replaceChildren();
 
  content.appendChild(
  createHero(
  "Marketing",
  "Campañas",
- "El módulo comercial de campañas será conectado en la siguiente fase."
+ "Campañas activas y su jerarquía real: campaña → conjunto → anuncios. Solo lectura."
  )
  );
 
- const grid =
+ if (!campaigns.length) {
+ content.appendChild(
  element(
  "div",
- "placeholder-grid"
- );
-
- const cards = [
- [
- "Campañas activas",
- "Aquí aparecerán las campañas comerciales activas y su estado."
- ],
- [
- "Resultados",
- "La lectura de gasto, leads, CPL y conversión se conectará sin exponer IDs técnicos."
- ],
- [
- "Comparativos",
- "Tendremos vista por campaña y formato manteniendo el modelo de métricas definido."
- ],
- [
- "Configuración",
- "Los IDs de Meta y la configuración técnica seguirán fuera de la interfaz normal."
- ]
- ];
-
- cards.forEach(
- function(item) {
- const card =
- element(
- "section",
- "placeholder-card"
- );
-
- card.appendChild(
- element(
- "h3",
- "",
- item[0]
+ "empty-state",
+ "No hay campañas con estado ACTIVA en Control Campañas."
  )
  );
-
- card.appendChild(
- element(
- "p",
- "",
- item[1]
- )
- );
-
- grid.appendChild(
- card
- );
+ return;
  }
+
+ const dashboardWrap = element("div", "campaign-dashboard");
+ const totals = campaigns.reduce(function(acc, campaign) {
+ const current = campaign.current || {};
+ if (Number.isFinite(Number(current.gasto))) acc.spend += Number(current.gasto);
+ if (Number.isFinite(Number(current.leads))) acc.leads += Number(current.leads);
+ return acc;
+ }, {spend: 0, leads: 0});
+
+ const blendedCpl = totals.leads > 0 ? totals.spend / totals.leads : null;
+ const latestUpdate = campaigns
+ .map(function(c) { return c.current && c.current.fecha_consulta ? c.current.fecha_consulta : ""; })
+ .filter(Boolean)
+ .sort()
+ .slice(-1)[0] || dashboard.generated_at || "";
+
+ const summaryGrid = element("div", "campaign-summary-grid");
+ summaryGrid.appendChild(campaignKpi("Campañas activas", String(campaigns.length), "Leídas de Control Campañas · estado = ACTIVA"));
+ summaryGrid.appendChild(campaignKpi("Gasto acumulado", formatCampaignMoney(totals.spend), "Suma del último corte oficial de cada campaña activa"));
+ summaryGrid.appendChild(campaignKpi("Leads acumulados", formatCampaignNumber(totals.leads), "Último corte oficial disponible"));
+ summaryGrid.appendChild(campaignKpi("CPL combinado", formatCampaignMoney(blendedCpl), "Gasto total ÷ leads totales"));
+ dashboardWrap.appendChild(summaryGrid);
+
+ const listSection = element("section", "campaign-section");
+ listSection.appendChild(
+ buildCampaignSectionHeader(
+ "Campañas activas",
+ "La lista cambia automáticamente cuando Control Campañas cambia de estado.",
+ element("div", "campaign-source-note", "Actualizado: " + formatCampaignDateTime(latestUpdate))
+ )
  );
 
- content.appendChild(
- grid
+ const list = element("div", "campaign-list");
+ if (!state.selectedCampaignProject || !campaigns.some(function(c) { return c.proyecto === state.selectedCampaignProject; })) {
+ state.selectedCampaignProject = campaigns[0].proyecto;
+ }
+
+ campaigns.forEach(function(campaign) {
+ const current = campaign.current || {};
+ const button = element("button", "campaign-card" + (campaign.proyecto === state.selectedCampaignProject ? " active" : ""));
+ button.type = "button";
+
+ const top = element("div", "campaign-card-top");
+ const titleWrap = element("div", "");
+ titleWrap.appendChild(element("div", "campaign-card-title", campaign.proyecto));
+ titleWrap.appendChild(
+ element(
+ "div",
+ "campaign-card-meta",
+ "Corte " + (current.corte_h !== null && current.corte_h !== undefined ? current.corte_h + " h" : "s/d") +
+ (current.fecha_consulta ? " · " + formatCampaignDateTime(current.fecha_consulta) : "")
+ )
  );
+ top.appendChild(titleWrap);
+ top.appendChild(campaignStatusBadge(campaign.estado));
+ button.appendChild(top);
+
+ const metrics = element("div", "campaign-card-metrics");
+ metrics.appendChild(campaignMini("Gasto", formatCampaignMoney(current.gasto)));
+ metrics.appendChild(campaignMini("Leads", formatCampaignNumber(current.leads)));
+ metrics.appendChild(campaignMini("CPL", formatCampaignMoney(current.cpl)));
+ metrics.appendChild(campaignMini("Conversión", formatCampaignPercent(current.conversion_clic_lead)));
+ button.appendChild(metrics);
+
+ button.addEventListener("click", function() {
+ state.selectedCampaignProject = campaign.proyecto;
+ renderCampanas(false, true);
+ });
+
+ list.appendChild(button);
+ });
+ listSection.appendChild(list);
+ dashboardWrap.appendChild(listSection);
+
+ const selected = campaigns.find(function(c) { return c.proyecto === state.selectedCampaignProject; }) || campaigns[0];
+ const current = selected.current || {};
+ const previous = selected.previous || null;
+
+ const resultSection = element("section", "campaign-section");
+ resultSection.appendChild(
+ buildCampaignSectionHeader(
+ selected.proyecto,
+ "Último corte oficial: " + (current.corte_h !== null && current.corte_h !== undefined ? current.corte_h + " h" : "s/d") +
+ (current.fecha_consulta ? " · consultado " + formatCampaignDateTime(current.fecha_consulta) : ""),
+ campaignStatusBadge(selected.estado)
+ )
+ );
+
+ const warnings = buildCampaignWarnings(selected);
+ if (warnings) resultSection.appendChild(warnings);
+
+ const detailKpis = element("div", "campaign-detail-kpis");
+ [
+ ["Gasto", formatCampaignMoney(current.gasto), campaignPreviousNote(previous, "gasto", formatCampaignMoney)],
+ ["Impresiones", formatCampaignNumber(current.impresiones), campaignPreviousNote(previous, "impresiones", formatCampaignNumber)],
+ ["Alcance", formatCampaignNumber(current.alcance), campaignPreviousNote(previous, "alcance", formatCampaignNumber)],
+ ["Clics enlace", formatCampaignNumber(current.clics_enlace), campaignPreviousNote(previous, "clics_enlace", formatCampaignNumber)],
+ ["CTR enlace", formatCampaignPercent(current.ctr_enlace), campaignPreviousNote(previous, "ctr_enlace", formatCampaignPercent)],
+ ["CPC enlace", formatCampaignMoney(current.cpc_enlace), campaignPreviousNote(previous, "cpc_enlace", formatCampaignMoney)],
+ ["Leads", formatCampaignNumber(current.leads), campaignPreviousNote(previous, "leads", formatCampaignNumber)],
+ ["CPL", formatCampaignMoney(current.cpl), campaignPreviousNote(previous, "cpl", formatCampaignMoney)],
+ ["Conv. clic → lead", formatCampaignPercent(current.conversion_clic_lead), campaignPreviousNote(previous, "conversion_clic_lead", formatCampaignPercent)]
+ ].forEach(function(item) {
+ const card = element("div", "campaign-detail-kpi");
+ card.appendChild(element("div", "campaign-mini-label", item[0]));
+ card.appendChild(element("div", "campaign-detail-value", item[1]));
+ card.appendChild(element("div", "campaign-delta", item[2]));
+ detailKpis.appendChild(card);
+ });
+ resultSection.appendChild(detailKpis);
+ dashboardWrap.appendChild(resultSection);
+
+ const hierarchySection = element("section", "campaign-section");
+ hierarchySection.appendChild(
+ buildCampaignSectionHeader(
+ "Conjuntos y anuncios",
+ "Todos los niveles usan exactamente el mismo corte oficial de la campaña. Abre cada conjunto para ver sus anuncios.",
+ null
+ )
+ );
+ hierarchySection.appendChild(buildCampaignHierarchy(selected));
+ hierarchySection.appendChild(
+ element(
+ "div",
+ "campaign-readonly-note",
+ "Solo lectura. Los estados y métricas vienen de Comparativo resultados de campañas; esta pantalla no pausa anuncios ni modifica Meta."
+ )
+ );
+ dashboardWrap.appendChild(hierarchySection);
+
+ const trendSection = element("section", "campaign-section");
+ trendSection.appendChild(
+ buildCampaignSectionHeader(
+ "Evolución por corte",
+ "Últimos " + Math.min((selected.trend || []).length, 12) + " cortes oficiales guardados.",
+ null
+ )
+ );
+ trendSection.appendChild(buildCampaignTable(selected));
+ dashboardWrap.appendChild(trendSection);
+
+ const configSection = element("section", "campaign-section");
+ configSection.appendChild(
+ buildCampaignSectionHeader(
+ "Configuración operativa",
+ "Estado técnico informativo. No son controles.",
+ null
+ )
+ );
+
+ const configGrid = element("div", "campaign-config-grid");
+ [
+ ["Arranque", formatCampaignDateTime(selected.fecha_hora_arranque)],
+ ["Corte oficial", selected.intervalo_corte_h !== null && selected.intervalo_corte_h !== undefined ? "Cada " + selected.intervalo_corte_h + " h" : "s/d"],
+ ["Lectura live", selected.intervalo_live_min !== null && selected.intervalo_live_min !== undefined ? "Cada " + selected.intervalo_live_min + " min" : "s/d"],
+ ["Métricas", selected.metricas_activa ? "Activas" : "Inactivas"],
+ ["CRM sync", selected.crm_sync_activo ? "Activo" : "Inactivo"],
+ ["CAPI", selected.capi_activa ? "Activa" : "Inactiva"]
+ ].forEach(function(item) {
+ const box = element("div", "campaign-config-item");
+ box.appendChild(element("div", "campaign-mini-label", item[0]));
+ box.appendChild(element("div", "campaign-config-value", item[1]));
+ configGrid.appendChild(box);
+ });
+ configSection.appendChild(configGrid);
+ configSection.appendChild(
+ element(
+ "div",
+ "campaign-source-note",
+ "Fuente: " + (dashboard.source_label || "Comparativo resultados de campañas") + ". Campañas visibles: Control Campañas con estado ACTIVA."
+ )
+ );
+ dashboardWrap.appendChild(configSection);
+
+ content.appendChild(dashboardWrap);
+
+ } catch (error) {
+ content.className = "";
+ content.replaceChildren(
+ element(
+ "div",
+ "empty-state",
+ "No se pudieron cargar las campañas."
+ )
+ );
+ showError(error.message);
+ reportClientError(error, {
+ accion: "campaigns.dashboard",
+ endpoint: "/api/campaigns"
+ });
+ }
  }
 
 
@@ -7859,18 +8803,21 @@ function renderAppPage() {
  if (!forceNow && now - lastAutoRefreshAt < AUTO_REFRESH_MS - 1000) return;
 
  const route = parseRoute();
- if (route.type !== "view" || (route.view !== "hoy" && route.view !== "leads")) return;
+ if (route.type !== "view" || (route.view !== "hoy" && route.view !== "leads" && route.view !== "campanas")) return;
 
  autoRefreshBusy = true;
  try {
  if (route.view === "hoy") {
  await renderHoy(true, true);
- } else {
+ } else if (route.view === "leads") {
  await renderLeads(true, true);
+ } else {
+ await renderCampanas(true, true);
  }
  lastAutoRefreshAt = Date.now();
  } catch (error) {
- reportClientError(error, {accion: "auto.refresh", endpoint: route.view === "hoy" ? "/api/hoy" : "/api/leads"});
+ const endpoint = route.view === "hoy" ? "/api/hoy" : (route.view === "leads" ? "/api/leads" : "/api/campaigns");
+ reportClientError(error, {accion: "auto.refresh", endpoint: endpoint});
  } finally {
  autoRefreshBusy = false;
  }
@@ -7901,6 +8848,10 @@ function renderAppPage() {
  route.view === "leads"
  ) {
  await renderLeads(true);
+ } else if (
+ route.view === "campanas"
+ ) {
+ await renderCampanas(true);
  } else {
  await handleRoute();
  }
