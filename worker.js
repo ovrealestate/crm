@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.7.0-campaigns-ux-background-sync
+ * Version: 0.7.1-followup-sequence-trend-scroll
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.7.0-campaigns-ux-background-sync";
+const APP_VERSION = "0.7.1-followup-sequence-trend-scroll";
 
 
 
@@ -4445,6 +4445,8 @@ function renderAppPage() {
  .campaign-dashboard {
  display: grid;
  gap: 18px;
+ min-width: 0;
+ max-width: 100%;
  }
 
  .campaign-summary-grid {
@@ -4635,6 +4637,9 @@ function renderAppPage() {
  }
 
  .campaign-section {
+ min-width: 0;
+ max-width: 100%;
+ overflow: hidden;
  padding: 18px;
  border: 1px solid var(--line);
  border-radius: 17px;
@@ -4711,11 +4716,67 @@ function renderAppPage() {
  line-height: 1.45;
  }
 
- .campaign-table-wrap {
+ .campaign-table-shell {
+ width: 100%;
+ min-width: 0;
+ max-width: 100%;
  margin-top: 14px;
+ }
+
+ .campaign-table-wrap {
+ width: 100%;
+ min-width: 0;
+ max-width: 100%;
  overflow-x: auto;
+ overflow-y: hidden;
+ -webkit-overflow-scrolling: touch;
+ overscroll-behavior-x: contain;
  border: 1px solid #e8e7e2;
  border-radius: 13px;
+ }
+
+ .campaign-scroll-control {
+ display: grid;
+ grid-template-columns: auto minmax(140px, 1fr) auto;
+ align-items: center;
+ gap: 10px;
+ margin-top: 9px;
+ padding: 8px 10px;
+ border-radius: 11px;
+ background: #f6f6f3;
+ color: #666;
+ font-size: 10px;
+ font-weight: 700;
+ }
+
+ .campaign-scroll-range {
+ width: 100%;
+ min-width: 0;
+ accent-color: #111;
+ cursor: ew-resize;
+ }
+
+ .followup-sequence-box {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ gap: 10px;
+ padding: 11px 12px;
+ border: 1px solid #e5e4df;
+ border-radius: 12px;
+ background: #f8f8f6;
+ }
+
+ .followup-sequence-label {
+ color: #666;
+ font-size: 11px;
+ font-weight: 700;
+ }
+
+ .followup-sequence-value {
+ font-size: 13px;
+ font-weight: 800;
+ color: #111;
  }
 
  .campaign-table {
@@ -7452,7 +7513,66 @@ function renderAppPage() {
  }
 
 
- function makeOperationEditor(lead, options, crmLeadId, fromView) {
+ function followupOrdinalLabel(number) {
+ const n = Math.max(1, Number(number) || 1);
+ if (n === 1) return "Primer seguimiento";
+ const labels = {
+ 2: "Segundo contacto",
+ 3: "Tercer contacto",
+ 4: "Cuarto contacto",
+ 5: "Quinto contacto",
+ 6: "Sexto contacto",
+ 7: "Séptimo contacto",
+ 8: "Octavo contacto",
+ 9: "Noveno contacto",
+ 10: "Décimo contacto"
+ };
+ return labels[n] || ("Contacto #" + n);
+ }
+
+
+ function countScheduledFollowups(historial) {
+ const events = Array.isArray(historial) ? historial : [];
+ let count = 0;
+ events.forEach(function(event) {
+ const type = normalized(event && event.tipo_evento);
+ const field = normalized(event && event.campo);
+ const hasNewValue = !!String(event && event.valor_nuevo || "").trim();
+ if (type === "seguimiento_programado") {
+ count++;
+ return;
+ }
+ if (
+ type === "cambio_campo" &&
+ field === "proximo_seguimiento" &&
+ hasNewValue
+ ) {
+ count++;
+ }
+ });
+ return count;
+ }
+
+
+ function followupSequenceBox(historial, lead, mode) {
+ const count = countScheduledFollowups(historial);
+ const hasCurrent = !!(lead && lead.proximo_seguimiento);
+ let ordinal;
+ if (mode === "current" && hasCurrent) {
+ ordinal = Math.max(1, count);
+ } else if (mode === "edit" && hasCurrent) {
+ ordinal = Math.max(1, count);
+ } else {
+ ordinal = count + 1;
+ }
+ const box = element("div", "followup-sequence-box");
+ box.appendChild(element("div", "followup-sequence-label", "Tipo de seguimiento"));
+ box.appendChild(element("div", "followup-sequence-value", followupOrdinalLabel(ordinal)));
+ return box;
+ }
+
+
+ function makeOperationEditor(lead, options, crmLeadId, fromView, historial) {
  const wrap = element("div", "operation-summary");
 
  addEditableInfoRow(
@@ -7460,7 +7580,7 @@ function renderAppPage() {
  "Etapa",
  lead.etapa || "Sin etapa",
  "",
- function() { openStagePopover(lead, options, crmLeadId, fromView); }
+ function() { openStagePopover(lead, options, crmLeadId, fromView, historial); }
  );
 
  const priorityText = lead.prioridad_efectiva || "Sin prioridad";
@@ -7476,13 +7596,16 @@ function renderAppPage() {
  const followupText = lead.proximo_seguimiento
  ? formatDateValue(lead.proximo_seguimiento, true)
  : "Sin seguimiento";
- const followupSub = [lead.seguimiento_actividad, lead.seguimiento_nota].filter(Boolean).join(" · ");
+ const currentFollowupType = lead.proximo_seguimiento
+ ? followupOrdinalLabel(Math.max(1, countScheduledFollowups(historial)))
+ : "";
+ const followupSub = [currentFollowupType, lead.seguimiento_actividad, lead.seguimiento_nota].filter(Boolean).join(" · ");
  addEditableInfoRow(
  wrap,
  "Próximo seguimiento",
  followupText,
  followupSub,
- function() { openFollowupPopover(lead, options, crmLeadId, fromView); }
+ function() { openFollowupPopover(lead, options, crmLeadId, fromView, historial); }
  );
 
  return wrap;
@@ -7606,7 +7729,7 @@ function renderAppPage() {
  return {box, select, confirm, sync};
  }
 
- function openStagePopover(lead, options, crmLeadId, fromView) {
+ function openStagePopover(lead, options, crmLeadId, fromView, historial) {
  const pop = openPopover("Cambiar etapa");
  const select = element("select", "form-control");
  fillSelectOptions(select, options.etapas, lead.etapa, false, "");
@@ -7670,6 +7793,7 @@ function renderAppPage() {
  syncConfirmMode();
 
  const stageFollowupBox = element("div", "confirm-box");
+ stageFollowupBox.appendChild(followupSequenceBox(historial, lead, "next"));
  const stageFollowupParts = parseLeadDateParts(lead.proximo_seguimiento);
  const stageFollowupDateControl = createMxDateControl(lead.proximo_seguimiento);
  const stageFollowupDate = stageFollowupDateControl.input;
@@ -7789,8 +7913,9 @@ function renderAppPage() {
  });
  }
 
- function openFollowupPopover(lead, options, crmLeadId, fromView) {
+ function openFollowupPopover(lead, options, crmLeadId, fromView, historial) {
  const pop = openPopover("Programar seguimiento");
+ pop.body.appendChild(followupSequenceBox(historial, lead, lead.proximo_seguimiento ? "edit" : "next"));
  const parts = parseLeadDateParts(lead.proximo_seguimiento);
  const dateControl = createMxDateControl(lead.proximo_seguimiento);
  const date = dateControl.input;
@@ -8189,7 +8314,8 @@ function renderAppPage() {
  lead,
  data.opciones_operativas || {},
  crmLeadId,
- fromView
+ fromView,
+ historial
  )
  );
 
@@ -8602,6 +8728,7 @@ function renderAppPage() {
 
 
  function buildCampaignTable(source) {
+ const shell = element("div", "campaign-table-shell");
  const wrap = element("div", "campaign-table-wrap");
  const table = element("table", "campaign-table");
  const thead = document.createElement("thead");
@@ -8664,7 +8791,52 @@ function renderAppPage() {
  });
  table.appendChild(tbody);
  wrap.appendChild(table);
- return wrap;
+ shell.appendChild(wrap);
+
+ const scrollControl = element("div", "campaign-scroll-control");
+ scrollControl.appendChild(element("span", "", "← Inicio"));
+ const range = element("input", "campaign-scroll-range");
+ range.type = "range";
+ range.min = "0";
+ range.max = "1000";
+ range.value = "0";
+ range.step = "1";
+ range.setAttribute("aria-label", "Mover horizontalmente la tabla de evolución");
+ scrollControl.appendChild(range);
+ scrollControl.appendChild(element("span", "", "Final →"));
+ shell.appendChild(scrollControl);
+
+ let syncingFromRange = false;
+ let syncingFromScroll = false;
+ const maxScroll = function() {
+ return Math.max(0, wrap.scrollWidth - wrap.clientWidth);
+ };
+ const updateRangeFromScroll = function() {
+ if (syncingFromRange) return;
+ const max = maxScroll();
+ syncingFromScroll = true;
+ range.value = max > 0 ? String(Math.round((wrap.scrollLeft / max) * 1000)) : "0";
+ range.disabled = max <= 0;
+ syncingFromScroll = false;
+ };
+ range.addEventListener("input", function() {
+ if (syncingFromScroll) return;
+ const max = maxScroll();
+ syncingFromRange = true;
+ wrap.scrollLeft = max * (Number(range.value || 0) / 1000);
+ syncingFromRange = false;
+ });
+ wrap.addEventListener("scroll", updateRangeFromScroll, {passive: true});
+ if (typeof ResizeObserver !== "undefined") {
+ const observer = new ResizeObserver(updateRangeFromScroll);
+ observer.observe(wrap);
+ observer.observe(table);
+ } else {
+ window.addEventListener("resize", updateRangeFromScroll, {passive: true});
+ }
+ requestAnimationFrame(updateRangeFromScroll);
+
+ return shell;
  }
 
 
