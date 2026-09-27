@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.5.4-date-persistence-contract-fix
+ * Version: 0.5.5-iso-persistence-contract-fix
 
  * ============================================================
 
@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.5.4-date-persistence-contract-fix";
+const APP_VERSION = "0.5.5-iso-persistence-contract-fix";
 
 
 
@@ -6276,16 +6276,16 @@ function renderAppPage() {
 
 
  function apiLocalDateValue(dateIso) {
- const display = mxDateDisplayFromIso(dateIso);
- return display || "";
+ const match = String(dateIso || "").match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+ return match ? dateIso : "";
  }
 
 
  function apiLocalDateTimeValue(dateIso, timeValue) {
- const displayDate = mxDateDisplayFromIso(dateIso);
+ const validDate = apiLocalDateValue(dateIso);
  const normalizedTime = parseMxTimeInput(timeValue);
- if (!displayDate || !normalizedTime) return "";
- return displayDate + " " + normalizedTime;
+ if (!validDate || !normalizedTime) return "";
+ return validDate + "T" + normalizedTime;
  }
 
 
