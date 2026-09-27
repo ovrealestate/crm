@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.6.4-campaigns-adset-trend
+ * Version: 0.7.0-campaigns-ux-background-sync
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.6.4-campaigns-adset-trend";
+const APP_VERSION = "0.7.0-campaigns-ux-background-sync";
 
 
 
@@ -2910,15 +2910,47 @@ function renderLoginPage(
 
  .card {
 
- width: min(92vw, 420px);
+ width: min(92vw, 430px);
 
- padding: 40px 32px;
+ padding: 36px 30px 32px;
 
- background: #151515;
+ background: linear-gradient(180deg, #171717 0%, #121212 100%);
 
- border: 1px solid #292929;
+ border: 1px solid #2d2d2d;
 
- border-radius: 20px;
+ border-radius: 22px;
+
+ box-shadow: 0 24px 70px rgba(0,0,0,.34);
+
+ text-align: center;
+
+ }
+
+
+
+ .login-mark {
+
+ width: 56px;
+
+ height: 56px;
+
+ margin: 0 auto 18px;
+
+ border-radius: 17px;
+
+ display: grid;
+
+ place-items: center;
+
+ background: #fff;
+
+ color: #111;
+
+ font-size: 18px;
+
+ font-weight: 800;
+
+ letter-spacing: -.04em;
 
  }
 
@@ -2928,11 +2960,11 @@ function renderLoginPage(
 
  font-size: 28px;
 
- font-weight: 700;
+ font-weight: 760;
 
- letter-spacing: -0.5px;
+ letter-spacing: -0.7px;
 
- margin-bottom: 8px;
+ margin-bottom: 7px;
 
  }
 
@@ -2940,13 +2972,25 @@ function renderLoginPage(
 
  .subtitle {
 
- color: #aaa;
+ color: #b0b0b0;
 
  font-size: 15px;
 
  line-height: 1.5;
 
- margin-bottom: 30px;
+ margin-bottom: 8px;
+
+ }
+
+ .login-help {
+
+ color: #777;
+
+ font-size: 12px;
+
+ line-height: 1.5;
+
+ margin-bottom: 26px;
 
  }
 
@@ -2955,6 +2999,28 @@ function renderLoginPage(
  #googleButton {
 
  min-height: 44px;
+
+ display: flex;
+
+ justify-content: center;
+
+ align-items: center;
+
+ width: 100%;
+
+ overflow: hidden;
+
+ }
+
+ @media (max-width: 480px) {
+
+ .card {
+
+ width: calc(100vw - 28px);
+
+ padding: 32px 20px 28px;
+
+ }
 
  }
 
@@ -2992,6 +3058,8 @@ function renderLoginPage(
 
  <main class="card">
 
+ <div class="login-mark">OV</div>
+
  <div class="brand">
 
  OV Real Estate
@@ -3003,6 +3071,12 @@ function renderLoginPage(
  <div class="subtitle">
 
  CRM · Acceso privado
+
+ </div>
+
+ <div class="login-help">
+
+ Inicia sesión con una cuenta autorizada para continuar.
 
  </div>
 
@@ -3220,6 +3294,8 @@ function renderLoginPage(
 
 
 
+ const googleButtonWidth = Math.max(240, Math.min(340, window.innerWidth - 84));
+
  google.accounts.id.renderButton(
 
  document.getElementById(
@@ -3258,7 +3334,7 @@ function renderLoginPage(
 
  width:
 
- 350
+ googleButtonWidth
 
  }
 
@@ -3437,6 +3513,15 @@ function renderAppPage() {
  background: currentColor;
  opacity: .9;
  flex: 0 0 auto;
+ transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+ }
+
+ .nav-button.has-update .nav-dot,
+ .mobile-nav button.has-update .nav-dot {
+ background: #e11d48;
+ opacity: 1;
+ box-shadow: 0 0 0 4px rgba(225,29,72,.14);
+ transform: scale(1.08);
  }
 
  .sidebar-bottom {
@@ -4403,25 +4488,29 @@ function renderAppPage() {
  }
 
  .campaign-card {
+ position: relative;
  width: 100%;
  text-align: left;
  border: 1px solid var(--line);
- border-radius: 17px;
- padding: 17px;
+ border-radius: 18px;
+ padding: 18px;
  background: #fff;
  color: inherit;
  cursor: pointer;
- transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+ transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease, background .15s ease;
+ overflow: hidden;
  }
 
  .campaign-card:hover {
- border-color: #bcbcb5;
- transform: translateY(-1px);
+ border-color: #b8b8b1;
+ transform: translateY(-2px);
+ box-shadow: 0 10px 28px rgba(0,0,0,.05);
  }
 
  .campaign-card.active {
  border-color: #111;
- box-shadow: 0 0 0 1px #111 inset;
+ box-shadow: 0 0 0 1px #111 inset, 0 10px 26px rgba(0,0,0,.05);
+ background: #fcfcfb;
  }
 
  .campaign-card-top,
@@ -4442,6 +4531,55 @@ function renderAppPage() {
  color: var(--muted);
  font-size: 12px;
  line-height: 1.4;
+ }
+
+ .campaign-card-action {
+ display: inline-flex;
+ align-items: center;
+ gap: 6px;
+ margin-top: 14px;
+ min-height: 28px;
+ padding: 0 9px;
+ border-radius: 999px;
+ background: #f1f1ee;
+ color: #444;
+ font-size: 11px;
+ font-weight: 760;
+ }
+
+ .campaign-card.active .campaign-card-action {
+ background: #111;
+ color: #fff;
+ }
+
+ .campaign-tree {
+ display: grid;
+ gap: 7px;
+ margin-top: 14px;
+ padding: 11px 12px;
+ border-radius: 13px;
+ background: #f7f7f4;
+ border: 1px solid #ecebe6;
+ }
+
+ .campaign-tree-row {
+ display: grid;
+ grid-template-columns: 18px minmax(0, 1fr);
+ gap: 7px;
+ align-items: start;
+ color: #454545;
+ font-size: 11px;
+ line-height: 1.35;
+ }
+
+ .campaign-tree-row.ad {
+ padding-left: 18px;
+ color: #707070;
+ }
+
+ .campaign-tree-symbol {
+ color: #9a9a94;
+ font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
  }
 
  .campaign-status {
@@ -4503,6 +4641,26 @@ function renderAppPage() {
  background: #fff;
  }
 
+ .campaign-selection-banner {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ gap: 14px;
+ padding: 13px 16px;
+ border-radius: 15px;
+ background: #111;
+ color: #fff;
+ }
+
+ .campaign-selection-banner strong {
+ font-size: 14px;
+ }
+
+ .campaign-selection-banner span {
+ color: #bdbdbd;
+ font-size: 11px;
+ }
+
  .campaign-section-title {
  margin: 0;
  font-size: 18px;
@@ -4543,51 +4701,14 @@ function renderAppPage() {
  line-height: 1.35;
  }
 
- .campaign-compare-grid {
- display: grid;
- grid-template-columns: repeat(2, minmax(0, 1fr));
- gap: 10px;
- margin-top: 14px;
- }
-
- .campaign-creative-card {
- padding: 15px;
- border: 1px solid #e3e2dd;
- border-radius: 14px;
- background: #fff;
- }
-
- .campaign-creative-title {
- font-size: 14px;
- font-weight: 800;
- }
-
- .campaign-creative-meta {
- margin-top: 3px;
- color: var(--muted);
+ .campaign-level-note {
+ margin-top: 12px;
+ padding: 10px 12px;
+ border-radius: 11px;
+ background: #f6f6f3;
+ color: #666;
  font-size: 11px;
- }
-
- .campaign-creative-metrics {
- display: grid;
- grid-template-columns: repeat(4, minmax(0, 1fr));
- gap: 8px;
- margin-top: 12px;
- }
-
- .campaign-bar {
- height: 6px;
- margin-top: 12px;
- border-radius: 999px;
- background: #ecebe6;
- overflow: hidden;
- }
-
- .campaign-bar > span {
- display: block;
- height: 100%;
- border-radius: inherit;
- background: #111;
+ line-height: 1.45;
  }
 
  .campaign-table-wrap {
@@ -4599,7 +4720,7 @@ function renderAppPage() {
 
  .campaign-table {
  width: 100%;
- min-width: 720px;
+ min-width: 1540px;
  border-collapse: collapse;
  font-size: 12px;
  }
@@ -4613,8 +4734,18 @@ function renderAppPage() {
  }
 
  .campaign-table th:first-child,
- .campaign-table td:first-child {
+ .campaign-table td:first-child,
+ .campaign-table th:nth-child(2),
+ .campaign-table td:nth-child(2) {
  text-align: left;
+ }
+
+ .campaign-table th:first-child,
+ .campaign-table td:first-child {
+ position: sticky;
+ left: 0;
+ background: #fff;
+ z-index: 2;
  }
 
  .campaign-table th {
@@ -4624,6 +4755,15 @@ function renderAppPage() {
  letter-spacing: .02em;
  text-transform: uppercase;
  background: #fafaf8;
+ }
+
+ .campaign-table th:first-child {
+ background: #fafaf8;
+ z-index: 3;
+ }
+
+ .campaign-table tr:first-child td {
+ background-color: #fcfcf9;
  }
 
  .campaign-table tr:last-child td {
@@ -4644,10 +4784,28 @@ function renderAppPage() {
  background: #fafaf8;
  }
 
+ .campaign-config-item.ok {
+ border-color: #cfe7d6;
+ background: #f4fbf6;
+ }
+
+ .campaign-config-item.bad {
+ border-color: #f0c4c1;
+ background: #fff4f3;
+ }
+
  .campaign-config-value {
  margin-top: 4px;
  font-size: 13px;
  font-weight: 760;
+ }
+
+ .campaign-config-item.ok .campaign-config-value {
+ color: #176b3a;
+ }
+
+ .campaign-config-item.bad .campaign-config-value {
+ color: #a12820;
  }
 
  .campaign-source-note {
@@ -4664,42 +4822,44 @@ function renderAppPage() {
 
  .campaign-warning {
  padding: 11px 13px;
- border: 1px solid #ead7a1;
+ border: 1px solid #efc5c1;
  border-radius: 12px;
- background: #fffaf0;
- color: #6d5312;
+ background: #fff4f3;
+ color: #9b241c;
  font-size: 12px;
  line-height: 1.4;
  }
 
  .campaign-hierarchy {
  display: grid;
- gap: 10px;
+ gap: 14px;
  margin-top: 14px;
  }
 
- .campaign-adset {
+ .campaign-adset-panel {
+ --adset-accent: #4f46e5;
  border: 1px solid #e5e4df;
- border-radius: 14px;
+ border-left: 5px solid var(--adset-accent);
+ border-radius: 15px;
  background: #fff;
  overflow: hidden;
  }
 
- .campaign-adset > summary {
- list-style: none;
- cursor: pointer;
- padding: 14px 15px;
+ .campaign-adset-panel.accent-1 { --adset-accent: #0f766e; }
+ .campaign-adset-panel.accent-2 { --adset-accent: #b45309; }
+ .campaign-adset-panel.accent-3 { --adset-accent: #7c3aed; }
+
+ .campaign-adset-head {
+ padding: 15px 16px 13px;
+ background: #fbfbf9;
+ border-bottom: 1px solid #eeede8;
  }
 
- .campaign-adset > summary::-webkit-details-marker {
- display: none;
- }
-
- .campaign-adset-summary {
- display: grid;
- grid-template-columns: minmax(180px, 1.2fr) repeat(7, minmax(72px, .65fr));
- gap: 10px;
- align-items: center;
+ .campaign-adset-title-row {
+ display: flex;
+ justify-content: space-between;
+ gap: 12px;
+ align-items: flex-start;
  }
 
  .campaign-entity-name {
@@ -4715,41 +4875,86 @@ function renderAppPage() {
  line-height: 1.35;
  }
 
- .campaign-adset-arrow {
- display: inline-block;
- margin-right: 6px;
- color: var(--muted);
- transition: transform .15s ease;
- }
-
- .campaign-adset[open] .campaign-adset-arrow {
- transform: rotate(90deg);
- }
-
- .campaign-ad-list {
+ .campaign-metric-grid {
  display: grid;
+ grid-template-columns: repeat(6, minmax(0, 1fr));
  gap: 8px;
- padding: 0 12px 12px;
- border-top: 1px solid #efeee9;
- background: #fafaf8;
+ margin-top: 13px;
+ }
+
+ .campaign-metric-box {
+ padding: 9px 10px;
+ border-radius: 10px;
+ background: #fff;
+ border: 1px solid #ecebe7;
+ }
+
+ .campaign-ad-list-static {
+ display: grid;
+ gap: 9px;
+ padding: 12px;
+ background: #f8f8f5;
  }
 
  .campaign-ad-card {
- display: grid;
- grid-template-columns: minmax(180px, 1.2fr) repeat(6, minmax(72px, .65fr));
- gap: 10px;
- align-items: center;
- padding: 12px;
+ padding: 12px 13px;
  border: 1px solid #e8e7e2;
  border-radius: 12px;
  background: #fff;
  }
 
- .campaign-hierarchy-secondary {
- grid-column: 1 / -1;
- color: var(--muted);
- font-size: 10px;
- line-height: 1.35;
+ .campaign-ad-card .campaign-metric-grid {
+ margin-top: 11px;
+ }
+
+ .campaign-trend-controls {
+ display: grid;
+ gap: 10px;
+ margin-top: 14px;
+ }
+
+ .campaign-trend-tabs,
+ .campaign-trend-subtabs {
+ display: flex;
+ gap: 7px;
+ flex-wrap: wrap;
+ }
+
+ .campaign-trend-button {
+ min-height: 34px;
+ border: 1px solid #deddd8;
+ border-radius: 999px;
+ padding: 0 11px;
+ background: #fff;
+ color: #555;
+ font-size: 11px;
+ font-weight: 730;
+ cursor: pointer;
+ }
+
+ .campaign-trend-button:hover {
+ border-color: #aaa;
+ }
+
+ .campaign-trend-button.active {
+ background: #111;
+ color: #fff;
+ border-color: #111;
+ }
+
+ .campaign-trend-subtabs .campaign-trend-button.active {
+ background: #f0f0ed;
+ color: #111;
+ border-color: #999;
+ }
+
+ .campaign-trend-context {
+ padding: 11px 13px;
+ border-radius: 12px;
+ background: #f6f6f3;
+ color: #555;
+ font-size: 12px;
+ line-height: 1.4;
  }
 
  .campaign-readonly-note {
@@ -4796,6 +5001,10 @@ function renderAppPage() {
  .campaign-detail-kpis {
  grid-template-columns: repeat(3, minmax(0, 1fr));
  }
+
+ .campaign-metric-grid {
+ grid-template-columns: repeat(4, minmax(0, 1fr));
+ }
  }
 
  @media (max-width: 760px) {
@@ -4814,20 +5023,18 @@ function renderAppPage() {
  grid-template-columns: repeat(2, minmax(0, 1fr));
  }
 
- .campaign-card-metrics,
- .campaign-creative-metrics {
+ .campaign-card-metrics {
  grid-template-columns: repeat(2, minmax(0, 1fr));
  }
 
- .campaign-adset-summary,
- .campaign-ad-card {
+ .campaign-metric-grid {
  grid-template-columns: repeat(2, minmax(0, 1fr));
  }
 
- .campaign-adset-summary > :first-child,
- .campaign-ad-card > :first-child,
- .campaign-hierarchy-secondary {
- grid-column: 1 / -1;
+ .campaign-adset-title-row,
+ .campaign-selection-banner {
+ align-items: flex-start;
+ flex-direction: column;
  }
 
  .sidebar {
@@ -5034,10 +5241,6 @@ function renderAppPage() {
  <div class="topbar-title" id="topbarTitle">Hoy</div>
 
  <div class="top-actions">
- <button class="ghost-button" id="refreshButton">
- Actualizar
- </button>
-
  <button class="ghost-button" id="logoutButton">
  Cerrar sesión
  </button>
@@ -5080,8 +5283,10 @@ function renderAppPage() {
  leads: null,
  campaigns: null,
  selectedCampaignProject: "",
- openCampaignAdsetByProject: {},
+ campaignTrendSelectionByProject: {},
  currentView: "hoy",
+ hoyHasUpdate: false,
+ seenHoyNewLeadIds: [],
  hoySearch: "",
  leadsSearch: "",
  leadsStage: "",
@@ -5675,9 +5880,12 @@ function renderAppPage() {
 
 
  async function loadHoy(force) {
+ const now = Date.now();
  if (
  state.hoy &&
- !force
+ !force &&
+ state.lastHoyLoad &&
+ now - state.lastHoyLoad < 30 * 1000
  ) {
  return state.hoy;
  }
@@ -5699,9 +5907,12 @@ function renderAppPage() {
 
 
  async function loadLeads(force) {
+ const now = Date.now();
  if (
  state.leads &&
- !force
+ !force &&
+ state.lastLeadsLoad &&
+ now - state.lastLeadsLoad < 60 * 1000
  ) {
  return state.leads;
  }
@@ -6292,6 +6503,7 @@ function renderAppPage() {
  );
 
  drawSections();
+ markCurrentHoyAsSeen();
 
  } catch (error) {
  content.className = "";
@@ -8231,15 +8443,17 @@ function renderAppPage() {
  }
 
 
- function formatCampaignNumber(value) {
+ function formatCampaignNumber(value, maxDecimals) {
  if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) {
  return "s/d";
  }
 
+ const decimals = Number.isFinite(Number(maxDecimals)) ? Number(maxDecimals) : 0;
  return new Intl.NumberFormat(
  "es-MX",
  {
- maximumFractionDigits: 0
+ minimumFractionDigits: decimals > 0 ? 1 : 0,
+ maximumFractionDigits: decimals
  }
  ).format(Number(value));
  }
@@ -8305,6 +8519,75 @@ function renderAppPage() {
  }
 
 
+ function campaignSafeRatio(numerator, denominator) {
+ const n = Number(numerator);
+ const d = Number(denominator);
+ if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
+ return n / d;
+ }
+
+
+ function campaignAggregateFromAdsets(campaign, corteH, campaignLevelMetrics) {
+ const adsets = campaign && campaign.hierarchy && Array.isArray(campaign.hierarchy.adsets)
+ ? campaign.hierarchy.adsets
+ : [];
+ const base = campaignLevelMetrics || {};
+
+ if (!adsets.length) return base;
+
+ const rows = adsets.map(function(adset) {
+ if (corteH === null || corteH === undefined) return adset.metrics || {};
+ if (adset.metrics && Number(adset.metrics.corte_h) === Number(corteH)) return adset.metrics;
+ const trend = Array.isArray(adset.trend) ? adset.trend : [];
+ return trend.find(function(point) { return Number(point.corte_h) === Number(corteH); }) || null;
+ }).filter(Boolean);
+
+ if (!rows.length) return base;
+
+ function sumNullable(key) {
+ let total = 0;
+ let hasValue = false;
+ rows.forEach(function(row) {
+ const value = row ? row[key] : null;
+ if (value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value))) {
+ total += Number(value);
+ hasValue = true;
+ }
+ });
+ return hasValue ? total : null;
+ }
+
+ const gasto = sumNullable("gasto");
+ const impresiones = sumNullable("impresiones");
+ const clics = sumNullable("clics_enlace");
+ const clicsUnicos = sumNullable("clics_unicos_enlace");
+ const leads = sumNullable("leads");
+ const lpv = sumNullable("landing_page_views");
+ const alcanceCampana = base.alcance !== null && base.alcance !== undefined ? base.alcance : null;
+
+ return {
+ corte_h: corteH !== null && corteH !== undefined ? corteH : base.corte_h,
+ fecha_corte: base.fecha_corte || "",
+ fecha_consulta: base.fecha_consulta || "",
+ gasto: gasto !== null ? gasto : base.gasto,
+ impresiones: impresiones !== null ? impresiones : base.impresiones,
+ alcance: alcanceCampana,
+ frecuencia: campaignSafeRatio(impresiones !== null ? impresiones : base.impresiones, alcanceCampana),
+ clics_enlace: clics !== null ? clics : base.clics_enlace,
+ clics_unicos_enlace: clicsUnicos !== null ? clicsUnicos : base.clics_unicos_enlace,
+ ctr_enlace: campaignSafeRatio(clics !== null ? clics : base.clics_enlace, impresiones !== null ? impresiones : base.impresiones),
+ cpc_enlace: campaignSafeRatio(gasto !== null ? gasto : base.gasto, clics !== null ? clics : base.clics_enlace),
+ cpm: campaignSafeRatio((gasto !== null ? gasto : base.gasto) === null || (gasto !== null ? gasto : base.gasto) === undefined ? null : Number(gasto !== null ? gasto : base.gasto) * 1000, impresiones !== null ? impresiones : base.impresiones),
+ leads: leads !== null ? leads : base.leads,
+ cpl: (leads !== null ? leads : base.leads) > 0 ? campaignSafeRatio(gasto !== null ? gasto : base.gasto, leads !== null ? leads : base.leads) : null,
+ conversion_clic_lead: campaignSafeRatio(leads !== null ? leads : base.leads, clics !== null ? clics : base.clics_enlace),
+ landing_page_views: lpv !== null ? lpv : base.landing_page_views,
+ conversion_clic_landing: campaignSafeRatio(lpv !== null ? lpv : base.landing_page_views, clics !== null ? clics : base.clics_enlace),
+ conversion_landing_lead: campaignSafeRatio(leads !== null ? leads : base.leads, lpv !== null ? lpv : base.landing_page_views)
+ };
+ }
+
+
  function buildCampaignSectionHeader(title, subtitle, trailing) {
  const head = element("div", "campaign-section-head");
  const text = element("div", "");
@@ -8325,12 +8608,22 @@ function renderAppPage() {
  const headRow = document.createElement("tr");
  [
  "Corte",
+ "Fecha",
  "Gasto",
- "Leads",
- "CPL",
+ "Impresiones",
+ "Alcance",
+ "Frecuencia",
+ "CPM",
+ "Clics enlace",
+ "Clics únicos",
  "CTR enlace",
  "CPC enlace",
- "Conv. clic → lead"
+ "LPV",
+ "Conv. clic → LPV",
+ "Leads",
+ "CPL",
+ "Conv. clic → lead",
+ "Conv. LPV → lead"
  ].forEach(function(label) {
  const th = document.createElement("th");
  th.textContent = label;
@@ -8340,23 +8633,31 @@ function renderAppPage() {
  table.appendChild(thead);
 
  const tbody = document.createElement("tbody");
- (source.trend || []).slice().reverse().forEach(function(point) {
+ const points = Array.isArray(source && source.trend) ? source.trend : [];
+ points.slice().reverse().forEach(function(point) {
  const tr = document.createElement("tr");
  const values = [
  (point.corte_h !== null && point.corte_h !== undefined ? point.corte_h + " h" : "s/d"),
+ point.fecha_corte ? formatCampaignDateTime(point.fecha_corte) : "s/d",
  formatCampaignMoney(point.gasto),
- formatCampaignNumber(point.leads),
- formatCampaignMoney(point.cpl),
+ formatCampaignNumber(point.impresiones),
+ formatCampaignNumber(point.alcance),
+ formatCampaignNumber(point.frecuencia, 2),
+ formatCampaignMoney(point.cpm),
+ formatCampaignNumber(point.clics_enlace),
+ formatCampaignNumber(point.clics_unicos_enlace),
  formatCampaignPercent(point.ctr_enlace),
  formatCampaignMoney(point.cpc_enlace),
- formatCampaignPercent(point.conversion_clic_lead)
+ formatCampaignNumber(point.landing_page_views),
+ formatCampaignPercent(point.conversion_clic_landing),
+ formatCampaignNumber(point.leads),
+ formatCampaignMoney(point.cpl),
+ formatCampaignPercent(point.conversion_clic_lead),
+ formatCampaignPercent(point.conversion_landing_lead)
  ];
- values.forEach(function(value, index) {
+ values.forEach(function(value) {
  const td = document.createElement("td");
  td.textContent = value;
- if (index === 0 && point.fecha_corte) {
- td.title = formatCampaignDateTime(point.fecha_corte);
- }
  tr.appendChild(td);
  });
  tbody.appendChild(tr);
@@ -8376,42 +8677,63 @@ function renderAppPage() {
  }
 
 
- function campaignMetricCells(metrics) {
+ function campaignMetricGrid(metrics) {
  const m = metrics || {};
- return [
- campaignMini("Gasto", formatCampaignMoney(m.gasto)),
- campaignMini("Leads", formatCampaignNumber(m.leads)),
- campaignMini("CPL", formatCampaignMoney(m.cpl)),
- campaignMini("CTR", formatCampaignPercent(m.ctr_enlace)),
- campaignMini("CPC", formatCampaignMoney(m.cpc_enlace)),
- campaignMini("Conversión", formatCampaignPercent(m.conversion_clic_lead))
- ];
+ const grid = element("div", "campaign-metric-grid");
+ [
+ ["Gasto", formatCampaignMoney(m.gasto)],
+ ["Impresiones", formatCampaignNumber(m.impresiones)],
+ ["Alcance", formatCampaignNumber(m.alcance)],
+ ["Frecuencia", formatCampaignNumber(m.frecuencia, 2)],
+ ["Clics enlace", formatCampaignNumber(m.clics_enlace)],
+ ["CTR", formatCampaignPercent(m.ctr_enlace)],
+ ["CPC", formatCampaignMoney(m.cpc_enlace)],
+ ["CPM", formatCampaignMoney(m.cpm)],
+ ["Landing views", formatCampaignNumber(m.landing_page_views)],
+ ["Leads", formatCampaignNumber(m.leads)],
+ ["CPL", formatCampaignMoney(m.cpl)],
+ ["Conversión", formatCampaignPercent(m.conversion_clic_lead)]
+ ].forEach(function(item) {
+ const box = element("div", "campaign-metric-box");
+ box.appendChild(element("div", "campaign-mini-label", item[0]));
+ box.appendChild(element("div", "campaign-mini-value", item[1]));
+ grid.appendChild(box);
+ });
+ return grid;
  }
 
 
- function campaignAdsetMetricCells(metrics) {
- const m = metrics || {};
- return [
- campaignMini("Gasto", formatCampaignMoney(m.gasto)),
- campaignMini("Leads", formatCampaignNumber(m.leads)),
- campaignMini("CPL", formatCampaignMoney(m.cpl)),
- campaignMini("CTR", formatCampaignPercent(m.ctr_enlace)),
- campaignMini("CPC", formatCampaignMoney(m.cpc_enlace)),
- campaignMini("CPM", formatCampaignMoney(m.cpm)),
- campaignMini("Conversión", formatCampaignPercent(m.conversion_clic_lead))
- ];
+ function buildCampaignTree(campaign) {
+ const tree = element("div", "campaign-tree");
+ const adsets = campaign && campaign.hierarchy && Array.isArray(campaign.hierarchy.adsets)
+ ? campaign.hierarchy.adsets
+ : [];
+
+ if (!adsets.length) {
+ tree.appendChild(element("div", "campaign-source-note", "Sin jerarquía disponible en el corte actual."));
+ return tree;
+ }
+
+ adsets.forEach(function(adset) {
+ const row = element("div", "campaign-tree-row");
+ row.appendChild(element("span", "campaign-tree-symbol", "├"));
+ row.appendChild(element("span", "", adset.nombre || "Conjunto sin nombre"));
+ tree.appendChild(row);
+
+ const ads = Array.isArray(adset.ads) ? adset.ads : [];
+ ads.forEach(function(ad, index) {
+ const adRow = element("div", "campaign-tree-row ad");
+ adRow.appendChild(element("span", "campaign-tree-symbol", index === ads.length - 1 ? "└" : "├"));
+ adRow.appendChild(element("span", "", ad.nombre || "Anuncio sin nombre"));
+ tree.appendChild(adRow);
+ });
+ });
+
+ return tree;
  }
 
 
- function campaignSecondaryMetrics(metrics) {
- const m = metrics || {};
- return "Impresiones " + formatCampaignNumber(m.impresiones) +
- " · Alcance " + formatCampaignNumber(m.alcance) +
- " · Clics enlace " + formatCampaignNumber(m.clics_enlace);
- }
-
-
- function buildCampaignHierarchy(campaign, onSelectionChange) {
+ function buildCampaignHierarchy(campaign) {
  const hierarchy = campaign.hierarchy || {};
  const adsets = Array.isArray(hierarchy.adsets) ? hierarchy.adsets : [];
  const wrap = element("div", "campaign-hierarchy");
@@ -8422,124 +8744,248 @@ function renderAppPage() {
  }
 
  adsets.forEach(function(adset, index) {
- const details = document.createElement("details");
- details.className = "campaign-adset";
-
- const projectKey = String(campaign.proyecto || "");
- const adsetKey = String(adset.key || adset.nombre || index);
- const openMap = state.openCampaignAdsetByProject || (state.openCampaignAdsetByProject = {});
- details.open = openMap[projectKey] === adsetKey;
-
- details.addEventListener("toggle", function() {
- let selectionChanged = false;
-
- if (details.open) {
- if (openMap[projectKey] !== adsetKey) selectionChanged = true;
- openMap[projectKey] = adsetKey;
-
- Array.from(wrap.querySelectorAll("details.campaign-adset")).forEach(function(other) {
- if (other !== details && other.open) other.open = false;
- });
- } else if (openMap[projectKey] === adsetKey) {
- delete openMap[projectKey];
- selectionChanged = true;
- }
-
- if (selectionChanged && typeof onSelectionChange === "function") {
- onSelectionChange();
- }
- });
-
- const summary = document.createElement("summary");
- const grid = element("div", "campaign-adset-summary");
+ const panel = element("div", "campaign-adset-panel accent-" + (index % 4));
+ const head = element("div", "campaign-adset-head");
+ const titleRow = element("div", "campaign-adset-title-row");
  const title = element("div", "");
- const titleLine = element("div", "campaign-entity-name");
- titleLine.appendChild(element("span", "campaign-adset-arrow", "›"));
- titleLine.appendChild(document.createTextNode(adset.nombre || "Conjunto sin nombre"));
- title.appendChild(titleLine);
+ title.appendChild(element("div", "campaign-entity-name", adset.nombre || "Conjunto sin nombre"));
  title.appendChild(
  element(
  "div",
  "campaign-entity-meta",
- [adset.formato, campaignTypeLabel(adset.tipo_conversion), ((adset.ads || []).length + " anuncio" + ((adset.ads || []).length === 1 ? "" : "s"))]
- .filter(Boolean)
- .join(" · ")
+ [
+ "Conjunto de anuncios",
+ adset.formato,
+ campaignTypeLabel(adset.tipo_conversion),
+ ((adset.ads || []).length + " anuncio" + ((adset.ads || []).length === 1 ? "" : "s"))
+ ].filter(Boolean).join(" · ")
  )
  );
- grid.appendChild(title);
- campaignAdsetMetricCells(adset.metrics).forEach(function(cell) { grid.appendChild(cell); });
- grid.appendChild(element("div", "campaign-hierarchy-secondary", campaignSecondaryMetrics(adset.metrics)));
- summary.appendChild(grid);
- details.appendChild(summary);
+ titleRow.appendChild(title);
+ titleRow.appendChild(element("div", "campaign-source-note", "Corte " + (adset.metrics && adset.metrics.corte_h !== null && adset.metrics.corte_h !== undefined ? adset.metrics.corte_h + " h" : "s/d")));
+ head.appendChild(titleRow);
+ head.appendChild(campaignMetricGrid(adset.metrics));
+ panel.appendChild(head);
 
- const adList = element("div", "campaign-ad-list");
  const ads = Array.isArray(adset.ads) ? adset.ads : [];
+ const adList = element("div", "campaign-ad-list-static");
  if (!ads.length) {
  adList.appendChild(element("div", "campaign-source-note", "No hay anuncios registrados para este conjunto en el mismo corte."));
  } else {
  ads.forEach(function(ad) {
  const card = element("div", "campaign-ad-card");
- const name = element("div", "");
- name.appendChild(element("div", "campaign-entity-name", ad.nombre || "Anuncio sin nombre"));
- name.appendChild(
+ card.appendChild(element("div", "campaign-entity-name", ad.nombre || "Anuncio sin nombre"));
+ card.appendChild(
  element(
  "div",
  "campaign-entity-meta",
- [ad.formato, campaignTypeLabel(ad.tipo_conversion)].filter(Boolean).join(" · ")
+ ["Anuncio", ad.formato, campaignTypeLabel(ad.tipo_conversion)].filter(Boolean).join(" · ")
  )
  );
- card.appendChild(name);
- campaignMetricCells(ad.metrics).forEach(function(cell) { card.appendChild(cell); });
- card.appendChild(element("div", "campaign-hierarchy-secondary", campaignSecondaryMetrics(ad.metrics)));
+ card.appendChild(campaignMetricGrid(ad.metrics));
  adList.appendChild(card);
  });
  }
- details.appendChild(adList);
- wrap.appendChild(details);
+ panel.appendChild(adList);
+ wrap.appendChild(panel);
  });
 
  return wrap;
  }
 
 
- function getSelectedCampaignAdset(campaign) {
+ function campaignTrendSelection(campaign) {
  const projectKey = String(campaign && campaign.proyecto || "");
- const openMap = state.openCampaignAdsetByProject || {};
- const selectedKey = openMap[projectKey];
+ const selections = state.campaignTrendSelectionByProject || (state.campaignTrendSelectionByProject = {});
+ let selection = selections[projectKey];
+
+ if (!selection || !selection.level) {
+ selection = {level: "campaign", adsetKey: "", adKey: ""};
+ selections[projectKey] = selection;
+ }
+
+ return selection;
+ }
+
+
+ function campaignAdsetKey(adset, index) {
+ return String(adset && (adset.key || adset.nombre) || index);
+ }
+
+
+ function campaignAdKey(ad, index) {
+ return String(ad && (ad.key || ad.nombre) || index);
+ }
+
+
+ function campaignTrendRollupSource(campaign) {
+ const trend = Array.isArray(campaign && campaign.trend) ? campaign.trend : [];
+ return {
+ trend: trend.map(function(point) {
+ return campaignAggregateFromAdsets(campaign, point.corte_h, point);
+ })
+ };
+ }
+
+
+ function campaignTrendResolvedSource(campaign) {
+ const selection = campaignTrendSelection(campaign);
  const adsets = campaign && campaign.hierarchy && Array.isArray(campaign.hierarchy.adsets)
  ? campaign.hierarchy.adsets
  : [];
 
- if (!selectedKey) return null;
+ if (selection.level === "campaign") {
+ return {
+ source: campaignTrendRollupSource(campaign),
+ level: "campaign",
+ label: "Campaña · " + (campaign.proyecto || "Campaña"),
+ adset: null,
+ ad: null
+ };
+ }
 
- return adsets.find(function(adset, index) {
- const key = String(adset.key || adset.nombre || index);
- return key === selectedKey;
- }) || null;
+ let selectedAdset = null;
+ let selectedAdsetIndex = -1;
+ adsets.some(function(adset, index) {
+ if (campaignAdsetKey(adset, index) === selection.adsetKey) {
+ selectedAdset = adset;
+ selectedAdsetIndex = index;
+ return true;
+ }
+ return false;
+ });
+
+ if (!selectedAdset) {
+ selection.level = "campaign";
+ selection.adsetKey = "";
+ selection.adKey = "";
+ return campaignTrendResolvedSource(campaign);
+ }
+
+ if (selection.level === "ad") {
+ const ads = Array.isArray(selectedAdset.ads) ? selectedAdset.ads : [];
+ let selectedAd = null;
+ ads.some(function(ad, index) {
+ if (campaignAdKey(ad, index) === selection.adKey) {
+ selectedAd = ad;
+ return true;
+ }
+ return false;
+ });
+
+ if (selectedAd) {
+ return {
+ source: selectedAd,
+ level: "ad",
+ label: "Anuncio · " + (selectedAd.nombre || "Anuncio"),
+ adset: selectedAdset,
+ ad: selectedAd,
+ adsetIndex: selectedAdsetIndex
+ };
+ }
+
+ selection.level = "adset";
+ selection.adKey = "";
+ }
+
+ return {
+ source: selectedAdset,
+ level: "adset",
+ label: "Conjunto · " + (selectedAdset.nombre || "Conjunto"),
+ adset: selectedAdset,
+ ad: null,
+ adsetIndex: selectedAdsetIndex
+ };
  }
 
 
  function renderCampaignTrendSection(campaign, section) {
  if (!section) return;
 
- const selectedAdset = getSelectedCampaignAdset(campaign);
- const source = selectedAdset || campaign;
+ const resolved = campaignTrendResolvedSource(campaign);
+ const source = resolved.source || campaign;
  const points = Array.isArray(source.trend) ? source.trend : [];
- const title = selectedAdset
- ? "Evolución por corte · " + (selectedAdset.nombre || "Conjunto")
- : "Evolución por corte";
- const subtitle = selectedAdset
- ? "Últimos " + Math.min(points.length, 12) + " cortes oficiales guardados de este conjunto."
- : "Últimos " + Math.min(points.length, 12) + " cortes oficiales guardados de la campaña.";
+ const selection = campaignTrendSelection(campaign);
+ const adsets = campaign && campaign.hierarchy && Array.isArray(campaign.hierarchy.adsets)
+ ? campaign.hierarchy.adsets
+ : [];
 
  section.replaceChildren();
  section.appendChild(
  buildCampaignSectionHeader(
- title,
- subtitle,
+ "Evolución por corte",
+ "Selecciona exactamente qué nivel quieres analizar. La tabla conserva hasta 12 cortes oficiales.",
  null
  )
  );
+
+ const controls = element("div", "campaign-trend-controls");
+ const tabs = element("div", "campaign-trend-tabs");
+ const campaignButton = element("button", "campaign-trend-button" + (resolved.level === "campaign" ? " active" : ""), "Campaña");
+ campaignButton.type = "button";
+ campaignButton.addEventListener("click", function() {
+ selection.level = "campaign";
+ selection.adsetKey = "";
+ selection.adKey = "";
+ renderCampaignTrendSection(campaign, section);
+ });
+ tabs.appendChild(campaignButton);
+
+ adsets.forEach(function(adset, index) {
+ const key = campaignAdsetKey(adset, index);
+ const active = resolved.level !== "campaign" && selection.adsetKey === key;
+ const button = element("button", "campaign-trend-button" + (active ? " active" : ""), adset.nombre || ("Conjunto " + (index + 1)));
+ button.type = "button";
+ button.addEventListener("click", function() {
+ selection.level = "adset";
+ selection.adsetKey = key;
+ selection.adKey = "";
+ renderCampaignTrendSection(campaign, section);
+ });
+ tabs.appendChild(button);
+ });
+ controls.appendChild(tabs);
+
+ if (resolved.adset) {
+ const subtabs = element("div", "campaign-trend-subtabs");
+ const totalButton = element("button", "campaign-trend-button" + (resolved.level === "adset" ? " active" : ""), "Total conjunto");
+ totalButton.type = "button";
+ totalButton.addEventListener("click", function() {
+ selection.level = "adset";
+ selection.adKey = "";
+ renderCampaignTrendSection(campaign, section);
+ });
+ subtabs.appendChild(totalButton);
+
+ const ads = Array.isArray(resolved.adset.ads) ? resolved.adset.ads : [];
+ ads.forEach(function(ad, index) {
+ const key = campaignAdKey(ad, index);
+ const button = element("button", "campaign-trend-button" + (resolved.level === "ad" && selection.adKey === key ? " active" : ""), ad.nombre || ("Anuncio " + (index + 1)));
+ button.type = "button";
+ button.addEventListener("click", function() {
+ selection.level = "ad";
+ selection.adKey = key;
+ renderCampaignTrendSection(campaign, section);
+ });
+ subtabs.appendChild(button);
+ });
+ controls.appendChild(subtabs);
+ }
+
+ controls.appendChild(
+ element(
+ "div",
+ "campaign-trend-context",
+ "Viendo: " + resolved.label + " · " + (points.length ? points.length + " cortes disponibles" : "sin historial disponible")
+ )
+ );
+ section.appendChild(controls);
+
+ if (!points.length) {
+ section.appendChild(element("div", "empty-state", "No hay cortes históricos para esta selección."));
+ return;
+ }
+
  section.appendChild(buildCampaignTable(source));
  }
 
@@ -8560,9 +9006,9 @@ function renderAppPage() {
 
 
  async function renderCampanas(force, silent) {
- const content = clearContent();
+ const content = document.getElementById("content");
 
- if (!silent) {
+ if (!silent && !state.campaigns) {
  content.className = "loading";
  content.textContent = "Cargando campañas...";
  }
@@ -8570,26 +9016,26 @@ function renderAppPage() {
  try {
  const dashboard = await loadCampaigns(!!force);
  const campaigns = Array.isArray(dashboard.campaigns) ? dashboard.campaigns : [];
+ const fragment = document.createDocumentFragment();
 
- content.className = "";
- content.replaceChildren();
-
- content.appendChild(
+ fragment.appendChild(
  createHero(
  "Marketing",
  "Campañas",
- "Campañas activas y su jerarquía real: campaña → conjunto → anuncios. Solo lectura."
+ "Campañas activas, estructura de conjuntos/anuncios y evolución por corte. Solo lectura."
  )
  );
 
  if (!campaigns.length) {
- content.appendChild(
+ fragment.appendChild(
  element(
  "div",
  "empty-state",
  "No hay campañas con estado ACTIVA en Control Campañas."
  )
  );
+ content.className = "";
+ content.replaceChildren(fragment);
  return;
  }
 
@@ -8608,6 +9054,7 @@ function renderAppPage() {
  .sort()
  .slice(-1)[0] || dashboard.generated_at || "";
 
+ // 1. Datos generales: se conserva igual.
  const summaryGrid = element("div", "campaign-summary-grid");
  summaryGrid.appendChild(campaignKpi("Campañas activas", String(campaigns.length), "Leídas de Control Campañas · estado = ACTIVA"));
  summaryGrid.appendChild(campaignKpi("Gasto acumulado", formatCampaignMoney(totals.spend), "Suma del último corte oficial de cada campaña activa"));
@@ -8615,11 +9062,12 @@ function renderAppPage() {
  summaryGrid.appendChild(campaignKpi("CPL combinado", formatCampaignMoney(blendedCpl), "Gasto total ÷ leads totales"));
  dashboardWrap.appendChild(summaryGrid);
 
+ // 2. Campañas activas con diagrama y affordance claro de selección.
  const listSection = element("section", "campaign-section");
  listSection.appendChild(
  buildCampaignSectionHeader(
  "Campañas activas",
- "La lista cambia automáticamente cuando Control Campañas cambia de estado.",
+ "Selecciona una campaña. Todo lo que aparece debajo cambiará a esa selección.",
  element("div", "campaign-source-note", "Actualizado: " + formatCampaignDateTime(latestUpdate))
  )
  );
@@ -8631,8 +9079,10 @@ function renderAppPage() {
 
  campaigns.forEach(function(campaign) {
  const current = campaign.current || {};
- const button = element("button", "campaign-card" + (campaign.proyecto === state.selectedCampaignProject ? " active" : ""));
+ const isActiveSelection = campaign.proyecto === state.selectedCampaignProject;
+ const button = element("button", "campaign-card" + (isActiveSelection ? " active" : ""));
  button.type = "button";
+ button.setAttribute("aria-pressed", isActiveSelection ? "true" : "false");
 
  const top = element("div", "campaign-card-top");
  const titleWrap = element("div", "");
@@ -8641,7 +9091,7 @@ function renderAppPage() {
  element(
  "div",
  "campaign-card-meta",
- "Corte " + (current.corte_h !== null && current.corte_h !== undefined ? current.corte_h + " h" : "s/d") +
+ "Corte oficial " + (current.corte_h !== null && current.corte_h !== undefined ? current.corte_h + " h" : "s/d") +
  (current.fecha_consulta ? " · " + formatCampaignDateTime(current.fecha_consulta) : "")
  )
  );
@@ -8655,8 +9105,17 @@ function renderAppPage() {
  metrics.appendChild(campaignMini("CPL", formatCampaignMoney(current.cpl)));
  metrics.appendChild(campaignMini("Conversión", formatCampaignPercent(current.conversion_clic_lead)));
  button.appendChild(metrics);
+ button.appendChild(buildCampaignTree(campaign));
+ button.appendChild(
+ element(
+ "div",
+ "campaign-card-action",
+ isActiveSelection ? "Seleccionada ✓" : "Ver detalle de esta campaña →"
+ )
+ );
 
  button.addEventListener("click", function() {
+ if (state.selectedCampaignProject === campaign.proyecto) return;
  state.selectedCampaignProject = campaign.proyecto;
  renderCampanas(false, true);
  });
@@ -8667,15 +9126,25 @@ function renderAppPage() {
  dashboardWrap.appendChild(listSection);
 
  const selected = campaigns.find(function(c) { return c.proyecto === state.selectedCampaignProject; }) || campaigns[0];
- const current = selected.current || {};
- const previous = selected.previous || null;
+ const currentSource = selected.current || {};
+ const previousSource = selected.previous || null;
+ const current = campaignAggregateFromAdsets(selected, currentSource.corte_h, currentSource);
+ const previous = previousSource ? campaignAggregateFromAdsets(selected, previousSource.corte_h, previousSource) : null;
 
+ const selectionBanner = element("div", "campaign-selection-banner");
+ const selectionText = element("div", "");
+ selectionText.appendChild(element("strong", "", "Detalle de campaña seleccionada"));
+ selectionText.appendChild(element("div", "", selected.proyecto));
+ selectionBanner.appendChild(selectionText);
+ selectionBanner.appendChild(element("span", "", "Las secciones siguientes pertenecen a esta campaña"));
+ dashboardWrap.appendChild(selectionBanner);
+
+ // 3. Nivel campaña.
  const resultSection = element("section", "campaign-section");
  resultSection.appendChild(
  buildCampaignSectionHeader(
- selected.proyecto,
- "Último corte oficial: " + (current.corte_h !== null && current.corte_h !== undefined ? current.corte_h + " h" : "s/d") +
- (current.fecha_consulta ? " · consultado " + formatCampaignDateTime(current.fecha_consulta) : ""),
+ selected.proyecto + " · Nivel campaña",
+ "Consolidado oficial de la campaña completa. Los conjuntos y anuncios se desglosan en la siguiente sección.",
  campaignStatusBadge(selected.estado)
  )
  );
@@ -8688,9 +9157,12 @@ function renderAppPage() {
  ["Gasto", formatCampaignMoney(current.gasto), campaignPreviousNote(previous, "gasto", formatCampaignMoney)],
  ["Impresiones", formatCampaignNumber(current.impresiones), campaignPreviousNote(previous, "impresiones", formatCampaignNumber)],
  ["Alcance", formatCampaignNumber(current.alcance), campaignPreviousNote(previous, "alcance", formatCampaignNumber)],
+ ["Frecuencia", formatCampaignNumber(current.frecuencia, 2), campaignPreviousNote(previous, "frecuencia", function(v) { return formatCampaignNumber(v, 2); })],
+ ["CPM", formatCampaignMoney(current.cpm), campaignPreviousNote(previous, "cpm", formatCampaignMoney)],
  ["Clics enlace", formatCampaignNumber(current.clics_enlace), campaignPreviousNote(previous, "clics_enlace", formatCampaignNumber)],
  ["CTR enlace", formatCampaignPercent(current.ctr_enlace), campaignPreviousNote(previous, "ctr_enlace", formatCampaignPercent)],
  ["CPC enlace", formatCampaignMoney(current.cpc_enlace), campaignPreviousNote(previous, "cpc_enlace", formatCampaignMoney)],
+ ["Landing page views", formatCampaignNumber(current.landing_page_views), campaignPreviousNote(previous, "landing_page_views", formatCampaignNumber)],
  ["Leads", formatCampaignNumber(current.leads), campaignPreviousNote(previous, "leads", formatCampaignNumber)],
  ["CPL", formatCampaignMoney(current.cpl), campaignPreviousNote(previous, "cpl", formatCampaignMoney)],
  ["Conv. clic → lead", formatCampaignPercent(current.conversion_clic_lead), campaignPreviousNote(previous, "conversion_clic_lead", formatCampaignPercent)]
@@ -8702,23 +9174,25 @@ function renderAppPage() {
  detailKpis.appendChild(card);
  });
  resultSection.appendChild(detailKpis);
+ resultSection.appendChild(
+ element(
+ "div",
+ "campaign-level-note",
+ "Nota técnica: gasto, impresiones, clics, landing views y leads se suman desde los conjuntos para que el desglose cuadre. Alcance se conserva a nivel campaña porque no es aditivo; frecuencia, CPM, CTR, CPC y CPL se calculan con los totales, no con promedios simples."
+ )
+ );
  dashboardWrap.appendChild(resultSection);
 
- let trendSection = null;
-
+ // 4. Desglose completo, sin acordeones.
  const hierarchySection = element("section", "campaign-section");
  hierarchySection.appendChild(
  buildCampaignSectionHeader(
  "Conjuntos y anuncios",
- "Todos los niveles usan exactamente el mismo corte oficial de la campaña. Abre cada conjunto para ver sus anuncios.",
+ "Desglose del mismo corte oficial. Cada conjunto muestra su acumulado completo y debajo aparecen todos sus anuncios.",
  null
  )
  );
- hierarchySection.appendChild(
- buildCampaignHierarchy(selected, function() {
- if (trendSection) renderCampaignTrendSection(selected, trendSection);
- })
- );
+ hierarchySection.appendChild(buildCampaignHierarchy(selected));
  hierarchySection.appendChild(
  element(
  "div",
@@ -8728,31 +9202,34 @@ function renderAppPage() {
  );
  dashboardWrap.appendChild(hierarchySection);
 
- trendSection = element("section", "campaign-section");
+ // 5. Evolución por corte con selector explícito.
+ const trendSection = element("section", "campaign-section");
  renderCampaignTrendSection(selected, trendSection);
  dashboardWrap.appendChild(trendSection);
 
+ // 6. Configuración operativa con semáforo visual.
  const configSection = element("section", "campaign-section");
  configSection.appendChild(
  buildCampaignSectionHeader(
  "Configuración operativa",
- "Estado técnico informativo. No son controles.",
+ "Estado técnico informativo. Verde = correcto; rojo = requiere atención.",
  null
  )
  );
 
  const configGrid = element("div", "campaign-config-grid");
- [
- ["Arranque", formatCampaignDateTime(selected.fecha_hora_arranque)],
- ["Corte oficial", selected.intervalo_corte_h !== null && selected.intervalo_corte_h !== undefined ? "Cada " + selected.intervalo_corte_h + " h" : "s/d"],
- ["Lectura live", selected.intervalo_live_min !== null && selected.intervalo_live_min !== undefined ? "Cada " + selected.intervalo_live_min + " min" : "s/d"],
- ["Métricas", selected.metricas_activa ? "Activas" : "Inactivas"],
- ["CRM sync", selected.crm_sync_activo ? "Activo" : "Inactivo"],
- ["CAPI", selected.capi_activa ? "Activa" : "Inactiva"]
- ].forEach(function(item) {
- const box = element("div", "campaign-config-item");
- box.appendChild(element("div", "campaign-mini-label", item[0]));
- box.appendChild(element("div", "campaign-config-value", item[1]));
+ const configItems = [
+ {label: "Arranque", value: formatCampaignDateTime(selected.fecha_hora_arranque), status: "neutral"},
+ {label: "Corte oficial", value: selected.intervalo_corte_h !== null && selected.intervalo_corte_h !== undefined ? "Cada " + selected.intervalo_corte_h + " h" : "s/d", status: "neutral"},
+ {label: "Lectura live", value: selected.intervalo_live_min !== null && selected.intervalo_live_min !== undefined ? "Cada " + selected.intervalo_live_min + " min" : "s/d", status: "neutral"},
+ {label: "Métricas", value: selected.metricas_activa ? "● Activas" : "● Inactivas", status: selected.metricas_activa ? "ok" : "bad"},
+ {label: "CRM sync", value: selected.crm_sync_activo ? "● Activo" : "● Inactivo", status: selected.crm_sync_activo ? "ok" : "bad"},
+ {label: "CAPI", value: selected.capi_activa ? "● Activa" : "● Inactiva", status: selected.capi_activa ? "ok" : "bad"}
+ ];
+ configItems.forEach(function(item) {
+ const box = element("div", "campaign-config-item" + (item.status === "ok" ? " ok" : item.status === "bad" ? " bad" : ""));
+ box.appendChild(element("div", "campaign-mini-label", item.label));
+ box.appendChild(element("div", "campaign-config-value", item.value));
  configGrid.appendChild(box);
  });
  configSection.appendChild(configGrid);
@@ -8765,9 +9242,12 @@ function renderAppPage() {
  );
  dashboardWrap.appendChild(configSection);
 
- content.appendChild(dashboardWrap);
+ fragment.appendChild(dashboardWrap);
+ content.className = "";
+ content.replaceChildren(fragment);
 
  } catch (error) {
+ if (!silent || !content.children.length) {
  content.className = "";
  content.replaceChildren(
  element(
@@ -8776,6 +9256,7 @@ function renderAppPage() {
  "No se pudieron cargar las campañas."
  )
  );
+ }
  showError(error.message);
  reportClientError(error, {
  accion: "campaigns.dashboard",
@@ -8866,74 +9347,86 @@ function renderAppPage() {
  }
 
 
- const AUTO_REFRESH_MS = 60 * 1000;
- let autoRefreshBusy = false;
- let lastAutoRefreshAt = 0;
+ const HOY_BACKGROUND_POLL_MS = 45 * 1000;
+ let hoyBackgroundBusy = false;
+ let lastHoyBackgroundPoll = 0;
 
- function userIsEditing() {
- const active = document.activeElement;
- if (!active) return false;
- const tag = String(active.tagName || "").toUpperCase();
- return tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || !!document.querySelector(".popover-backdrop");
+ function getHoyNewLeadIds(hoy) {
+ const rows = hoy && hoy.secciones && Array.isArray(hoy.secciones.nuevos)
+ ? hoy.secciones.nuevos
+ : [];
+ return rows
+ .map(function(lead) { return String(lead && lead.crm_lead_id || ""); })
+ .filter(Boolean);
  }
 
- async function autoRefreshVisibleView(forceNow) {
- if (autoRefreshBusy || document.hidden || userIsEditing()) return;
+ function setHoyUpdateIndicator(active) {
+ state.hoyHasUpdate = !!active;
+ document.querySelectorAll('[data-view="hoy"]').forEach(function(button) {
+ button.classList.toggle("has-update", !!active);
+ button.setAttribute("aria-label", active ? "Hoy · hay un nuevo lead" : "Hoy");
+ });
+ }
+
+ function markCurrentHoyAsSeen() {
+ state.seenHoyNewLeadIds = getHoyNewLeadIds(state.hoy);
+ setHoyUpdateIndicator(false);
+ }
+
+ async function pollHoyInBackground(forceNow) {
+ if (hoyBackgroundBusy || document.hidden) return;
  const now = Date.now();
- if (!forceNow && now - lastAutoRefreshAt < AUTO_REFRESH_MS - 1000) return;
+ if (!forceNow && now - lastHoyBackgroundPoll < HOY_BACKGROUND_POLL_MS - 1000) return;
+
+ hoyBackgroundBusy = true;
+ try {
+ const freshHoy = await api("/api/hoy");
+ if (!freshHoy || typeof freshHoy !== "object") return;
+
+ const freshIds = getHoyNewLeadIds(freshHoy);
+ const hadBaseline = !!state.hoy || (Array.isArray(state.seenHoyNewLeadIds) && state.seenHoyNewLeadIds.length > 0);
+ const seen = new Set(Array.isArray(state.seenHoyNewLeadIds) ? state.seenHoyNewLeadIds : []);
+ const hasNewLead = hadBaseline && freshIds.some(function(id) { return !seen.has(id); });
+
+ if (!hadBaseline) {
+ state.seenHoyNewLeadIds = freshIds.slice();
+ }
+
+ state.hoy = freshHoy;
+ state.lastHoyLoad = Date.now();
+ lastHoyBackgroundPoll = Date.now();
+
+ if (hasNewLead) {
+ // La lista de Leads debe releerse la próxima vez que el usuario entre.
+ state.leads = null;
+ state.lastLeadsLoad = 0;
 
  const route = parseRoute();
- if (route.type !== "view" || (route.view !== "hoy" && route.view !== "leads" && route.view !== "campanas")) return;
-
- autoRefreshBusy = true;
- try {
- if (route.view === "hoy") {
- await renderHoy(true, true);
- } else if (route.view === "leads") {
- await renderLeads(true, true);
+ if (route.type === "view" && route.view === "hoy") {
+ await renderHoy(false, true);
  } else {
- await renderCampanas(true, true);
+ setHoyUpdateIndicator(true);
  }
- lastAutoRefreshAt = Date.now();
+ }
  } catch (error) {
- const endpoint = route.view === "hoy" ? "/api/hoy" : (route.view === "leads" ? "/api/leads" : "/api/campaigns");
- reportClientError(error, {accion: "auto.refresh", endpoint: endpoint});
+ reportClientError(error, {accion: "hoy.background.poll", endpoint: "/api/hoy"});
  } finally {
- autoRefreshBusy = false;
+ hoyBackgroundBusy = false;
  }
  }
 
- async function refreshCurrentView() {
- showError("");
+ function prefetchSecondaryViews() {
+ const work = function() {
+ Promise.allSettled([
+ loadLeads(false),
+ loadCampaigns(false)
+ ]).catch(function() {});
+ };
 
- const route =
- parseRoute();
-
- if (
- route.type === "lead"
- ) {
- await renderLeadDetail(
- route.id,
- route.from
- );
-
- return;
- }
-
- if (
- route.view === "hoy"
- ) {
- await renderHoy(true);
- } else if (
- route.view === "leads"
- ) {
- await renderLeads(true);
- } else if (
- route.view === "campanas"
- ) {
- await renderCampanas(true);
+ if ("requestIdleCallback" in window) {
+ window.requestIdleCallback(work, {timeout: 1800});
  } else {
- await handleRoute();
+ setTimeout(work, 900);
  }
  }
 
@@ -8971,14 +9464,6 @@ function renderAppPage() {
 
 
  document.getElementById(
- "refreshButton"
- ).addEventListener(
- "click",
- refreshCurrentView
- );
-
-
- document.getElementById(
  "logoutButton"
  ).addEventListener(
  "click",
@@ -9011,6 +9496,7 @@ function renderAppPage() {
  }
 
  await handleRoute();
+ prefetchSecondaryViews();
 
  } catch (error) {
  showError(
@@ -9031,17 +9517,17 @@ function renderAppPage() {
  }
 
 
- // Refresco operativo: no recarga la página; vuelve a consultar únicamente la vista visible.
+ // Vigilancia de nuevos leads: consulta Hoy en segundo plano sin reconstruir la vista actual.
  setInterval(function() {
- autoRefreshVisibleView(false);
- }, AUTO_REFRESH_MS);
+ pollHoyInBackground(false);
+ }, HOY_BACKGROUND_POLL_MS);
 
  document.addEventListener("visibilitychange", function() {
- if (!document.hidden) autoRefreshVisibleView(true);
+ if (!document.hidden) pollHoyInBackground(true);
  });
 
  window.addEventListener("focus", function() {
- if (Date.now() - lastAutoRefreshAt > 5000) autoRefreshVisibleView(true);
+ if (Date.now() - lastHoyBackgroundPoll > 5000) pollHoyInBackground(true);
  });
 
  boot();
