@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.6.1-campaigns-readonly-hierarchy
+ * Version: 0.6.2-campaigns-adset-accordion
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.6.1-campaigns-readonly-hierarchy";
+const APP_VERSION = "0.6.2-campaigns-adset-accordion";
 
 
 
@@ -5080,6 +5080,7 @@ function renderAppPage() {
  leads: null,
  campaigns: null,
  selectedCampaignProject: "",
+ openCampaignAdsetByProject: {},
  currentView: "hoy",
  hoySearch: "",
  leadsSearch: "",
@@ -8409,7 +8410,23 @@ function renderAppPage() {
  adsets.forEach(function(adset, index) {
  const details = document.createElement("details");
  details.className = "campaign-adset";
- if (index === 0) details.open = true;
+
+ const projectKey = String(campaign.proyecto || "");
+ const adsetKey = String(adset.key || adset.nombre || index);
+ const openMap = state.openCampaignAdsetByProject || (state.openCampaignAdsetByProject = {});
+ details.open = openMap[projectKey] === adsetKey;
+
+ details.addEventListener("toggle", function() {
+ if (details.open) {
+ openMap[projectKey] = adsetKey;
+
+ Array.from(wrap.querySelectorAll("details.campaign-adset")).forEach(function(other) {
+ if (other !== details && other.open) other.open = false;
+ });
+ } else if (openMap[projectKey] === adsetKey) {
+ delete openMap[projectKey];
+ }
+ });
 
  const summary = document.createElement("summary");
  const grid = element("div", "campaign-adset-summary");
