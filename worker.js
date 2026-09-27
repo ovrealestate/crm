@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.5.1-appointment-date-ui-fixes
+ * Version: 0.5.3-smart-date-time-appointment-fix
 
  * ============================================================
 
@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.5.2-smart-date-appointment-confirmation";
+const APP_VERSION = "0.5.3-smart-date-time-appointment-fix";
 
 
 
@@ -4073,6 +4073,62 @@ function renderAppPage() {
  cursor: pointer;
  }
 
+ .mx-time-control {
+ position: relative;
+ display: grid;
+ grid-template-columns: minmax(0, 1fr) 42px;
+ width: 100%;
+ }
+
+ .mx-time-control .mx-time-text {
+ padding-right: 10px;
+ border-radius: 11px 0 0 11px;
+ }
+
+ .mx-time-picker-wrap {
+ position: relative;
+ min-width: 42px;
+ height: 42px;
+ border: 1px solid var(--line);
+ border-left: 0;
+ border-radius: 0 11px 11px 0;
+ background: #fafaf8;
+ overflow: hidden;
+ }
+
+ .mx-time-picker-wrap::before {
+ content: "";
+ position: absolute;
+ left: 11px;
+ top: 10px;
+ width: 18px;
+ height: 18px;
+ border: 2px solid #555;
+ border-radius: 50%;
+ pointer-events: none;
+ }
+
+ .mx-time-picker-wrap::after {
+ content: "";
+ position: absolute;
+ left: 20px;
+ top: 14px;
+ width: 5px;
+ height: 7px;
+ border-left: 2px solid #555;
+ border-bottom: 2px solid #555;
+ pointer-events: none;
+ }
+
+ .mx-time-picker {
+ position: absolute;
+ inset: 0;
+ width: 100%;
+ height: 100%;
+ opacity: 0;
+ cursor: pointer;
+ }
+
  .confirm-box {
  display: grid;
  gap: 10px;
@@ -4584,7 +4640,7 @@ function renderAppPage() {
  http_status: context.http_status || "",
  error_code: context.error_code || "",
  mensaje: String(error?.message || error || "Error frontend").slice(0, 1000),
- worker_version: "0.5.1-appointment-date-ui-fixes",
+ worker_version: APP_VERSION,
  detalle: String(error?.stack || "").slice(0, 2000)
  }
  })
@@ -6296,9 +6352,133 @@ function renderAppPage() {
  }
 
 
+ function parseMxTimeInput(value) {
+ const text = String(value || "").trim().toUpperCase();
+ if (!text) return "";
+
+ let hour;
+ let minute;
+ let suffix = "";
+ const compact = text.replace(/\\s+/g, "");
+ let match = compact.match(/^(\\d{1,2}):(\\d{2})(AM|PM)?$/);
+
+ if (match) {
+ hour = Number(match[1]);
+ minute = Number(match[2]);
+ suffix = match[3] || "";
+ } else {
+ match = compact.match(/^(\\d{1,2})(AM|PM)$/);
+ if (match) {
+ hour = Number(match[1]);
+ minute = 0;
+ suffix = match[2];
+ } else if (/^\\d{3,4}$/.test(compact)) {
+ hour = Number(compact.slice(0, -2));
+ minute = Number(compact.slice(-2));
+ } else {
+ return "";
+ }
+ }
+
+ if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute < 0 || minute > 59) return "";
+
+ if (suffix) {
+ if (hour < 1 || hour > 12) return "";
+ if (suffix === "AM" && hour === 12) hour = 0;
+ if (suffix === "PM" && hour !== 12) hour += 12;
+ } else if (hour < 0 || hour > 23) {
+ return "";
+ }
+
+ return String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0");
+ }
+
+
+ function mxTimeDisplayFrom24(value) {
+ const normalized = parseMxTimeInput(value);
+ if (!normalized) return "";
+ const match = normalized.match(/^(\\d{2}):(\\d{2})$/);
+ let hour = Number(match[1]);
+ const minute = match[2];
+ const suffix = hour >= 12 ? "PM" : "AM";
+ hour = hour % 12 || 12;
+ return String(hour).padStart(2, "0") + ":" + minute + " " + suffix;
+ }
+
+
+ function normalizeMxTimeField(input) {
+ const raw = String(input.value || "").trim();
+ if (!raw) {
+ input.classList.remove("input-invalid");
+ input.removeAttribute("title");
+ return "";
+ }
+ const normalized = parseMxTimeInput(raw);
+ if (!normalized) {
+ input.classList.add("input-invalid");
+ input.title = "Hora inválida. Use HHMM, HH:MM o seleccione el reloj.";
+ return "";
+ }
+ input.value = mxTimeDisplayFrom24(normalized);
+ input.classList.remove("input-invalid");
+ input.removeAttribute("title");
+ return normalized;
+ }
+
+
+ function configureMxTimeInput(input, value) {
+ input.type = "text";
+ input.inputMode = "text";
+ input.autocomplete = "off";
+ input.placeholder = "HHMM";
+ input.maxLength = 10;
+ input.value = mxTimeDisplayFrom24(value);
+ input.setAttribute("aria-label", "Hora. Puede escribir 1800 para 6:00 PM.");
+ input.addEventListener("input", function() {
+ const original = String(input.value || "");
+ const cleaned = original.replace(/[^0-9:apmAPM ]/g, "").slice(0, 10);
+ if (cleaned !== original) input.value = cleaned;
+ input.classList.remove("input-invalid");
+ input.removeAttribute("title");
+ });
+ input.addEventListener("blur", function() { normalizeMxTimeField(input); });
+ return input;
+ }
+
+
+ function createMxTimeControl(value) {
+ const root = element("div", "mx-time-control");
+ const input = element("input", "form-control mx-time-text");
+ configureMxTimeInput(input, value);
+ const pickerWrap = element("div", "mx-time-picker-wrap");
+ pickerWrap.setAttribute("aria-label", "Abrir selector de hora");
+ const picker = element("input", "mx-time-picker");
+ picker.type = "time";
+ const initial = parseMxTimeInput(value);
+ picker.value = initial || "";
+ const syncFromPicker = function() {
+ const normalized = parseMxTimeInput(picker.value);
+ if (!normalized) return;
+ input.value = mxTimeDisplayFrom24(normalized);
+ input.classList.remove("input-invalid");
+ input.removeAttribute("title");
+ };
+ picker.addEventListener("input", syncFromPicker);
+ picker.addEventListener("change", syncFromPicker);
+ input.addEventListener("blur", function() {
+ const normalized = parseMxTimeInput(input.value);
+ if (normalized) picker.value = normalized;
+ });
+ pickerWrap.appendChild(picker);
+ root.append(input, pickerWrap);
+ return {root, input, picker};
+ }
+
+
  function localDateTimeFromIso(dateIso, timeValue) {
  const dateMatch = String(dateIso || "").match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
- const timeMatch = String(timeValue || "").match(/^(\\d{2}):(\\d{2})$/);
+ const normalizedTime = parseMxTimeInput(timeValue);
+ const timeMatch = normalizedTime.match(/^(\\d{2}):(\\d{2})$/);
  if (!dateMatch || !timeMatch) return null;
  const date = new Date(
  Number(dateMatch[1]),
@@ -6628,12 +6808,11 @@ function renderAppPage() {
 
  const appointmentDateControl = createMxDateControl(lead.fecha_cita);
  const appointmentDate = appointmentDateControl.input;
- const appointmentTime = element("input", "form-control");
- appointmentTime.type = "time";
  const aptParts = parseLeadDateParts(lead.fecha_cita);
- appointmentTime.value = aptParts.time;
+ const appointmentTimeControl = createMxTimeControl(aptParts.time);
+ const appointmentTime = appointmentTimeControl.input;
  const aptGrid = element("div", "followup-grid");
- aptGrid.append(appointmentDateControl.root, appointmentTime);
+ aptGrid.append(appointmentDateControl.root, appointmentTimeControl.root);
  const aptField = popoverField("Fecha y hora de la cita", aptGrid);
  aptField.style.display = "none";
  pop.body.appendChild(aptField);
@@ -6661,10 +6840,10 @@ function renderAppPage() {
 
  const customConfirmDateControl = createMxDateControl("");
  const customConfirmDate = customConfirmDateControl.input;
- const customConfirmTime = element("input", "form-control");
- customConfirmTime.type = "time";
+ const customConfirmTimeControl = createMxTimeControl("");
+ const customConfirmTime = customConfirmTimeControl.input;
  const customConfirmGrid = element("div", "followup-grid");
- customConfirmGrid.append(customConfirmDateControl.root, customConfirmTime);
+ customConfirmGrid.append(customConfirmDateControl.root, customConfirmTimeControl.root);
  const customConfirmField = popoverField("Fecha y hora de confirmación", customConfirmGrid);
  customConfirmField.style.display = "none";
  confirmBox.appendChild(customConfirmField);
@@ -6715,13 +6894,15 @@ function renderAppPage() {
  const appointmentDateValue = parseMxDateInput(appointmentDate.value);
  if (!appointmentDateValue) throw new Error("Capture una fecha válida en formato DD/MM/AAAA. También puede escribir 8 dígitos, por ejemplo 02102026.");
  appointmentDate.value = mxDateDisplayFromIso(appointmentDateValue);
- if (!appointmentTime.value) throw new Error("La cita requiere hora.");
- changes.fecha_cita = appointmentDateValue + "T" + appointmentTime.value;
+ const appointmentTimeValue = parseMxTimeInput(appointmentTime.value);
+ if (!appointmentTimeValue) throw new Error("Capture una hora válida. Puede escribir 1800 para 6:00 PM o usar el reloj.");
+ appointmentTime.value = mxTimeDisplayFrom24(appointmentTimeValue);
+ changes.fecha_cita = appointmentDateValue + "T" + appointmentTimeValue;
 
  const reminder = confirmationDateTime(
  confirmMode.value,
  appointmentDateValue,
- appointmentTime.value,
+ appointmentTimeValue,
  customConfirmDate.value,
  customConfirmTime.value
  );
@@ -6736,7 +6917,7 @@ function renderAppPage() {
  "Confirmar cita del " +
  mxDateDisplayFromIso(appointmentDateValue) +
  " a las " +
- appointmentTime.value +
+ mxTimeDisplayFrom24(appointmentTimeValue) +
  ".";
  }
  if (stage === "compra") {
@@ -6772,11 +6953,10 @@ function renderAppPage() {
  const parts = parseLeadDateParts(lead.proximo_seguimiento);
  const dateControl = createMxDateControl(lead.proximo_seguimiento);
  const date = dateControl.input;
- const time = element("input", "form-control");
- time.type = "time";
- time.value = parts.time;
+ const timeControl = createMxTimeControl(parts.time);
+ const time = timeControl.input;
  const grid = element("div", "followup-grid");
- grid.append(dateControl.root, time);
+ grid.append(dateControl.root, timeControl.root);
  pop.body.appendChild(popoverField("Fecha y hora", grid));
 
  const activity = element("select", "form-control");
@@ -6839,7 +7019,10 @@ function renderAppPage() {
  const linked = selected ? String(selected.dataset.etapa || "") : "";
  if (code === "OTRO" && !note.value.trim()) throw new Error("Para Otro, indique qué se va a hacer.");
 
- const followup = time.value ? followupDateValue + "T" + time.value : followupDateValue;
+ const followupTimeValue = time.value ? parseMxTimeInput(time.value) : "";
+ if (time.value && !followupTimeValue) throw new Error("Capture una hora válida. Puede escribir 1800 para 6:00 PM o usar el reloj.");
+ if (followupTimeValue) time.value = mxTimeDisplayFrom24(followupTimeValue);
+ const followup = followupTimeValue ? followupDateValue + "T" + followupTimeValue : followupDateValue;
  const changes = {
  proximo_seguimiento: followup,
  seguimiento_actividad: activity.value,
@@ -6849,8 +7032,8 @@ function renderAppPage() {
  if (linked && stageCheck.checked) {
  changes.etapa = linked;
  if (linked === "Cita agendada") {
- if (!time.value) throw new Error("Una cita requiere hora.");
- changes.fecha_cita = followupDateValue + "T" + time.value;
+ if (!followupTimeValue) throw new Error("Una cita requiere hora.");
+ changes.fecha_cita = followupDateValue + "T" + followupTimeValue;
  }
  if (linked === "Compra") {
  if (!(Number(valueInput.value) > 0)) throw new Error("Capture el valor de operación.");
