@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.5.6-auto-refresh-stage-followup";
+const APP_VERSION = "0.5.7-lead-detail-stability";
 
 
 
@@ -574,16 +574,21 @@ async function routeRequest(request, env) {
 
  );
 
+ const detailData =
+ upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
 
-
-
+ if (!detailData || !detailData.lead) {
+ throw publicError(
+ 502,
+ "El API no devolvió el detalle del lead."
+ );
+ }
 
  return jsonResponse({
-
  ok: true,
-
- data: upstream.data
-
+ data: detailData
  });
 
  }
@@ -7239,6 +7244,10 @@ function renderAppPage() {
  return;
  }
 
+ if (!data || typeof data !== "object" || !data.lead) {
+ throw new Error("El servidor no devolvió el detalle del lead.");
+ }
+
  const lead =
  data.lead || {};
 
@@ -7614,6 +7623,12 @@ function renderAppPage() {
  );
 
  } catch (error) {
+ reportClientError(error, {
+ accion: "lead.detail",
+ endpoint: "/api/leads/" + encodeURIComponent(crmLeadId),
+ crm_lead_id: crmLeadId
+ });
+
  content.className = "";
  content.replaceChildren(
  element(
