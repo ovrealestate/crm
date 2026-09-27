@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.5.5-iso-persistence-contract-fix";
+const APP_VERSION = "0.5.6-auto-refresh-stage-followup";
 
 
 
@@ -5419,15 +5419,14 @@ function renderAppPage() {
  }
 
 
- async function renderHoy(force) {
- const content =
- clearContent();
+ async function renderHoy(force, silent) {
+ let content = document.getElementById("content");
 
- content.className =
- "loading";
-
- content.textContent =
- "Cargando Hoy...";
+ if (!silent) {
+ content = clearContent();
+ content.className = "loading";
+ content.textContent = "Cargando Hoy...";
+ }
 
  try {
  const hoy =
@@ -5435,6 +5434,11 @@ function renderAppPage() {
  !!force
  );
 
+ // Si el usuario cambió de vista mientras llegaban los datos, no pisamos la pantalla actual.
+ const routeNow = parseRoute();
+ if (silent && (routeNow.type !== "view" || routeNow.view !== "hoy")) return;
+
+ content = document.getElementById("content");
  content.className = "";
  content.replaceChildren();
 
@@ -5731,15 +5735,14 @@ function renderAppPage() {
  }
 
 
- async function renderLeads(force) {
- const content =
- clearContent();
+ async function renderLeads(force, silent) {
+ let content = document.getElementById("content");
 
- content.className =
- "loading";
-
- content.textContent =
- "Cargando leads...";
+ if (!silent) {
+ content = clearContent();
+ content.className = "loading";
+ content.textContent = "Cargando leads...";
+ }
 
  try {
  const list =
@@ -5747,6 +5750,10 @@ function renderAppPage() {
  !!force
  );
 
+ const routeNow = parseRoute();
+ if (silent && (routeNow.type !== "view" || routeNow.view !== "leads")) return;
+
+ content = document.getElementById("content");
  content.className = "";
  content.replaceChildren();
 
@@ -6875,6 +6882,20 @@ function renderAppPage() {
  confirmMode.addEventListener("change", syncConfirmMode);
  syncConfirmMode();
 
+ const stageFollowupBox = element("div", "confirm-box");
+ const stageFollowupParts = parseLeadDateParts(lead.proximo_seguimiento);
+ const stageFollowupDateControl = createMxDateControl(lead.proximo_seguimiento);
+ const stageFollowupDate = stageFollowupDateControl.input;
+ const stageFollowupTimeControl = createMxTimeControl(stageFollowupParts.time);
+ const stageFollowupTime = stageFollowupTimeControl.input;
+ const stageFollowupGrid = element("div", "followup-grid");
+ stageFollowupGrid.append(stageFollowupDateControl.root, stageFollowupTimeControl.root);
+ stageFollowupBox.appendChild(popoverField("Próximo seguimiento · fecha y hora", stageFollowupGrid));
+ stageFollowupBox.appendChild(element("div", "confirm-summary",
+ "Obligatorio al cambiar a esta etapa. Después puede editarlo desde la ficha del lead."));
+ stageFollowupBox.style.display = "none";
+ pop.body.appendChild(stageFollowupBox);
+
  const valueInput = element("input", "form-control");
  valueInput.type = "number";
  valueInput.min = "1";
@@ -6886,9 +6907,11 @@ function renderAppPage() {
 
  const sync = function() {
  const stage = normalized(select.value);
+ const needsGenericFollowup = stage !== "no responde" && stage !== "descartado" && stage !== "cita agendada";
  discard.sync(stage === "descartado");
  aptField.style.display = stage === "cita agendada" ? "grid" : "none";
  confirmBox.style.display = stage === "cita agendada" ? "grid" : "none";
+ stageFollowupBox.style.display = needsGenericFollowup ? "grid" : "none";
  valueField.style.display = stage === "compra" ? "grid" : "none";
  };
  select.addEventListener("change", sync);
@@ -6904,6 +6927,20 @@ function renderAppPage() {
  if (!discard.confirm.checked) throw new Error("Revise y confirme el teléfono original.");
  changes.confirmar_numero_erroneo = true;
  }
+ }
+ if (stage === "no responde" || stage === "descartado") {
+ // Estas etapas no deben conservar tareas futuras.
+ changes.proximo_seguimiento = "";
+ changes.seguimiento_actividad = "";
+ changes.seguimiento_nota = "";
+ } else if (stage !== "cita agendada") {
+ const stageFollowupDateValue = parseMxDateInput(stageFollowupDate.value);
+ if (!stageFollowupDateValue) throw new Error("Capture la fecha del próximo seguimiento. Puede escribir 8 dígitos, por ejemplo 27092026.");
+ stageFollowupDate.value = mxDateDisplayFromIso(stageFollowupDateValue);
+ const stageFollowupTimeValue = parseMxTimeInput(stageFollowupTime.value);
+ if (!stageFollowupTimeValue) throw new Error("Capture la hora del próximo seguimiento. Puede escribir 1800 para 6:00 PM o usar el reloj.");
+ stageFollowupTime.value = mxTimeDisplayFrom24(stageFollowupTimeValue);
+ changes.proximo_seguimiento = apiLocalDateTimeValue(stageFollowupDateValue, stageFollowupTimeValue);
  }
  if (stage === "cita agendada") {
  const appointmentDateValue = parseMxDateInput(appointmentDate.value);
@@ -7747,6 +7784,40 @@ function renderAppPage() {
  }
 
 
+ const AUTO_REFRESH_MS = 60 * 1000;
+ let autoRefreshBusy = false;
+ let lastAutoRefreshAt = 0;
+
+ function userIsEditing() {
+ const active = document.activeElement;
+ if (!active) return false;
+ const tag = String(active.tagName || "").toUpperCase();
+ return tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || !!document.querySelector(".popover-backdrop");
+ }
+
+ async function autoRefreshVisibleView(forceNow) {
+ if (autoRefreshBusy || document.hidden || userIsEditing()) return;
+ const now = Date.now();
+ if (!forceNow && now - lastAutoRefreshAt < AUTO_REFRESH_MS - 1000) return;
+
+ const route = parseRoute();
+ if (route.type !== "view" || (route.view !== "hoy" && route.view !== "leads")) return;
+
+ autoRefreshBusy = true;
+ try {
+ if (route.view === "hoy") {
+ await renderHoy(true, true);
+ } else {
+ await renderLeads(true, true);
+ }
+ lastAutoRefreshAt = Date.now();
+ } catch (error) {
+ reportClientError(error, {accion: "auto.refresh", endpoint: route.view === "hoy" ? "/api/hoy" : "/api/leads"});
+ } finally {
+ autoRefreshBusy = false;
+ }
+ }
+
  async function refreshCurrentView() {
  showError("");
 
@@ -7870,6 +7941,19 @@ function renderAppPage() {
  }
  }
 
+
+ // Refresco operativo: no recarga la página; vuelve a consultar únicamente la vista visible.
+ setInterval(function() {
+ autoRefreshVisibleView(false);
+ }, AUTO_REFRESH_MS);
+
+ document.addEventListener("visibilitychange", function() {
+ if (!document.hidden) autoRefreshVisibleView(true);
+ });
+
+ window.addEventListener("focus", function() {
+ if (Date.now() - lastAutoRefreshAt > 5000) autoRefreshVisibleView(true);
+ });
 
  boot();
 </script>
