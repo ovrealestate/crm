@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.6.2-campaigns-adset-accordion
+ * Version: 0.6.3-campaigns-adset-cpm
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.6.2-campaigns-adset-accordion";
+const APP_VERSION = "0.6.3-campaigns-adset-cpm";
 
 
 
@@ -4697,7 +4697,7 @@ function renderAppPage() {
 
  .campaign-adset-summary {
  display: grid;
- grid-template-columns: minmax(180px, 1.2fr) repeat(6, minmax(72px, .65fr));
+ grid-template-columns: minmax(180px, 1.2fr) repeat(7, minmax(72px, .65fr));
  gap: 10px;
  align-items: center;
  }
@@ -8389,6 +8389,20 @@ function renderAppPage() {
  }
 
 
+ function campaignAdsetMetricCells(metrics) {
+ const m = metrics || {};
+ return [
+ campaignMini("Gasto", formatCampaignMoney(m.gasto)),
+ campaignMini("Leads", formatCampaignNumber(m.leads)),
+ campaignMini("CPL", formatCampaignMoney(m.cpl)),
+ campaignMini("CTR", formatCampaignPercent(m.ctr_enlace)),
+ campaignMini("CPC", formatCampaignMoney(m.cpc_enlace)),
+ campaignMini("CPM", formatCampaignMoney(m.cpm)),
+ campaignMini("Conversión", formatCampaignPercent(m.conversion_clic_lead))
+ ];
+ }
+
+
  function campaignSecondaryMetrics(metrics) {
  const m = metrics || {};
  return "Impresiones " + formatCampaignNumber(m.impresiones) +
@@ -8445,7 +8459,7 @@ function renderAppPage() {
  )
  );
  grid.appendChild(title);
- campaignMetricCells(adset.metrics).forEach(function(cell) { grid.appendChild(cell); });
+ campaignAdsetMetricCells(adset.metrics).forEach(function(cell) { grid.appendChild(cell); });
  grid.appendChild(element("div", "campaign-hierarchy-secondary", campaignSecondaryMetrics(adset.metrics)));
  summary.appendChild(grid);
  details.appendChild(summary);
