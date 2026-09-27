@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.5.3-smart-date-time-appointment-fix
+ * Version: 0.5.4-date-persistence-contract-fix
 
  * ============================================================
 
@@ -36,7 +36,7 @@
 
 
 
-const APP_VERSION = "0.5.3-smart-date-time-appointment-fix";
+const APP_VERSION = "0.5.4-date-persistence-contract-fix";
 
 
 
@@ -6275,6 +6275,20 @@ function renderAppPage() {
  }
 
 
+ function apiLocalDateValue(dateIso) {
+ const display = mxDateDisplayFromIso(dateIso);
+ return display || "";
+ }
+
+
+ function apiLocalDateTimeValue(dateIso, timeValue) {
+ const displayDate = mxDateDisplayFromIso(dateIso);
+ const normalizedTime = parseMxTimeInput(timeValue);
+ if (!displayDate || !normalizedTime) return "";
+ return displayDate + " " + normalizedTime;
+ }
+
+
  function normalizeMxDateField(input) {
  const raw = String(input.value || "").trim();
  if (!raw) {
@@ -6493,15 +6507,16 @@ function renderAppPage() {
  }
 
 
- function localIsoDateTime(date) {
+ function localApiDateTime(date) {
  if (!(date instanceof Date) || isNaN(date.getTime())) return "";
- return (
+ const dateIso =
  String(date.getFullYear()).padStart(4, "0") + "-" +
  String(date.getMonth() + 1).padStart(2, "0") + "-" +
- String(date.getDate()).padStart(2, "0") + "T" +
+ String(date.getDate()).padStart(2, "0");
+ const time24 =
  String(date.getHours()).padStart(2, "0") + ":" +
- String(date.getMinutes()).padStart(2, "0")
- );
+ String(date.getMinutes()).padStart(2, "0");
+ return apiLocalDateTimeValue(dateIso, time24);
  }
 
 
@@ -6530,7 +6545,7 @@ function renderAppPage() {
 
  if (!reminder || isNaN(reminder.getTime())) return "";
  if (reminder.getTime() >= appointment.getTime()) return "";
- return localIsoDateTime(reminder);
+ return localApiDateTime(reminder);
  }
 
 
@@ -6897,7 +6912,9 @@ function renderAppPage() {
  const appointmentTimeValue = parseMxTimeInput(appointmentTime.value);
  if (!appointmentTimeValue) throw new Error("Capture una hora válida. Puede escribir 1800 para 6:00 PM o usar el reloj.");
  appointmentTime.value = mxTimeDisplayFrom24(appointmentTimeValue);
- changes.fecha_cita = appointmentDateValue + "T" + appointmentTimeValue;
+ const appointmentApiValue = apiLocalDateTimeValue(appointmentDateValue, appointmentTimeValue);
+ if (!appointmentApiValue) throw new Error("No se pudo preparar la fecha y hora de la cita.");
+ changes.fecha_cita = appointmentApiValue;
 
  const reminder = confirmationDateTime(
  confirmMode.value,
@@ -7022,7 +7039,9 @@ function renderAppPage() {
  const followupTimeValue = time.value ? parseMxTimeInput(time.value) : "";
  if (time.value && !followupTimeValue) throw new Error("Capture una hora válida. Puede escribir 1800 para 6:00 PM o usar el reloj.");
  if (followupTimeValue) time.value = mxTimeDisplayFrom24(followupTimeValue);
- const followup = followupTimeValue ? followupDateValue + "T" + followupTimeValue : followupDateValue;
+ const followup = followupTimeValue
+ ? apiLocalDateTimeValue(followupDateValue, followupTimeValue)
+ : apiLocalDateValue(followupDateValue);
  const changes = {
  proximo_seguimiento: followup,
  seguimiento_actividad: activity.value,
@@ -7033,7 +7052,9 @@ function renderAppPage() {
  changes.etapa = linked;
  if (linked === "Cita agendada") {
  if (!followupTimeValue) throw new Error("Una cita requiere hora.");
- changes.fecha_cita = followupDateValue + "T" + followupTimeValue;
+ const appointmentApiValue = apiLocalDateTimeValue(followupDateValue, followupTimeValue);
+ if (!appointmentApiValue) throw new Error("No se pudo preparar la fecha y hora de la cita.");
+ changes.fecha_cita = appointmentApiValue;
  }
  if (linked === "Compra") {
  if (!(Number(valueInput.value) > 0)) throw new Error("Capture el valor de operación.");
