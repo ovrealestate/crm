@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.7.1-followup-sequence-trend-scroll
+ * Version: 0.7.3-followup-tab-explicit
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.7.1-followup-sequence-trend-scroll";
+const APP_VERSION = "0.7.3-followup-tab-explicit";
 
 
 
@@ -7191,6 +7191,18 @@ function renderAppPage() {
  }
 
 
+ function wireDateTabToTime(dateInput, timeInput) {
+ if (!dateInput || !timeInput) return;
+ dateInput.addEventListener("keydown", function(event) {
+ if (event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+ event.preventDefault();
+ normalizeMxDateField(dateInput);
+ timeInput.focus();
+ if (typeof timeInput.select === "function") timeInput.select();
+ });
+ }
+
+
  function createMxDateControl(value) {
  const root = element("div", "mx-date-control");
  const input = element("input", "form-control mx-date-text");
@@ -7200,6 +7212,9 @@ function renderAppPage() {
  pickerWrap.setAttribute("aria-label", "Abrir calendario");
  const picker = element("input", "mx-date-picker");
  picker.type = "date";
+ // El calendario sigue disponible con clic, pero no interrumpe la navegación por Tab.
+ // Así, al salir del campo de fecha, el foco pasa directamente al campo de hora.
+ picker.tabIndex = -1;
  const initial = parseLeadDateParts(value).date;
  picker.value = initial || "";
 
@@ -7774,6 +7789,7 @@ function renderAppPage() {
  const customConfirmDate = customConfirmDateControl.input;
  const customConfirmTimeControl = createMxTimeControl("");
  const customConfirmTime = customConfirmTimeControl.input;
+ wireDateTabToTime(customConfirmDate, customConfirmTime);
  const customConfirmGrid = element("div", "followup-grid");
  customConfirmGrid.append(customConfirmDateControl.root, customConfirmTimeControl.root);
  const customConfirmField = popoverField("Fecha y hora de confirmación", customConfirmGrid);
@@ -7799,6 +7815,7 @@ function renderAppPage() {
  const stageFollowupDate = stageFollowupDateControl.input;
  const stageFollowupTimeControl = createMxTimeControl(stageFollowupParts.time);
  const stageFollowupTime = stageFollowupTimeControl.input;
+ wireDateTabToTime(stageFollowupDate, stageFollowupTime);
  const stageFollowupGrid = element("div", "followup-grid");
  stageFollowupGrid.append(stageFollowupDateControl.root, stageFollowupTimeControl.root);
  stageFollowupBox.appendChild(popoverField("Próximo seguimiento · fecha y hora", stageFollowupGrid));
@@ -7921,6 +7938,7 @@ function renderAppPage() {
  const date = dateControl.input;
  const timeControl = createMxTimeControl(parts.time);
  const time = timeControl.input;
+ wireDateTabToTime(date, time);
  const grid = element("div", "followup-grid");
  grid.append(dateControl.root, timeControl.root);
  pop.body.appendChild(popoverField("Fecha y hora", grid));
