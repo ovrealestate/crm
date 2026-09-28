@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.12.3-followup-default-tomorrow-9am
+ * Version: 0.12.4-whatsapp-quick-access
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.12.3-followup-default-tomorrow-9am";
+const APP_VERSION = "0.12.4-whatsapp-quick-access";
 
 
 
@@ -8327,6 +8327,31 @@ function renderAppPage() {
  card.appendChild(row);
  }
 
+ function addActionInfoRow(card, label, value, actionLabel, onAction) {
+ if (
+ value === "" ||
+ value === null ||
+ value === undefined ||
+ value === false
+ ) {
+ return;
+ }
+
+ const row = element("div", "editable-info-row");
+ row.appendChild(element("div", "info-label", label));
+
+ const valueWrap = element("div", "editable-value-wrap");
+ valueWrap.appendChild(element("div", "info-value", value === true ? "Sí" : value));
+ row.appendChild(valueWrap);
+
+ const action = element("button", "edit-link", actionLabel || "Abrir");
+ action.type = "button";
+ action.setAttribute("aria-label", (actionLabel || "Abrir") + " " + label);
+ action.addEventListener("click", onAction);
+ row.appendChild(action);
+ card.appendChild(row);
+ }
+
  function openPopover(title) {
  const backdrop = element("div", "popover-backdrop");
  const panel = element("div", "popover-panel");
@@ -9768,10 +9793,19 @@ function renderAppPage() {
  }
  );
 
- addInfoRow(
+ addActionInfoRow(
  contact,
  "Teléfono",
- lead.telefono
+ lead.telefono,
+ "WhatsApp",
+ function() {
+ try {
+ openWhatsAppMac(lead, "");
+ showError("");
+ } catch (error) {
+ showError(error && error.message ? error.message : "No se pudo abrir WhatsApp.");
+ }
+ }
  );
 
  addInfoRow(
