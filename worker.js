@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.12.0-commercial-profile-edit
+ * Version: 0.12.2-first-name-render-fix
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.12.1-template-bootstrap-fix";
+const APP_VERSION = "0.12.2-first-name-render-fix";
 
 
 
@@ -8371,7 +8371,8 @@ function renderAppPage() {
  function firstNameForMessage(value) {
  const text = String(value || "").trim();
  if (!text) return "";
- return text.split(/\s+/)[0] || text;
+ const firstSpace = text.indexOf(" ");
+ return firstSpace >= 0 ? text.slice(0, firstSpace) : text;
  }
 
  function compactMdpNumber(value) {
