@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.10.2-contact-sequence-full-name-timezone
+ * Version: 0.11.0-performance-fast-io
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.10.2-contact-sequence-full-name-timezone";
+const APP_VERSION = "0.11.0-performance-fast-io";
 
 
 
@@ -5762,6 +5762,7 @@ function renderAppPage() {
 
  let leadsRefreshBusy = false;
  let campaignsRefreshBusy = false;
+ let coreRefreshBusy = false;
 
  const VIEW_TITLES = {
  hoy: "Hoy",
@@ -5857,7 +5858,24 @@ function renderAppPage() {
  reportClientError(event.reason || "Promise rechazada", {accion: "unhandledrejection"});
  });
 
+ const inflightGetRequests = new Map();
+
  async function api(path, options = {}) {
+ const method = String(options.method || "GET").toUpperCase();
+ if (method !== "GET") return apiRequestCore(path, options);
+
+ // Si dos partes de la UI piden exactamente la misma lectura al mismo tiempo
+ // (por ejemplo precarga de Campañas + clic del usuario), comparten una sola
+ // petición en lugar de abrir dos ejecuciones de Apps Script.
+ if (inflightGetRequests.has(path)) return inflightGetRequests.get(path);
+
+ const promise = apiRequestCore(path, options)
+ .finally(function() { inflightGetRequests.delete(path); });
+ inflightGetRequests.set(path, promise);
+ return promise;
+ }
+
+ async function apiRequestCore(path, options = {}) {
  const method =
  String(
  options.method || "GET"
@@ -6396,6 +6414,58 @@ function renderAppPage() {
  return data;
  }
 
+
+ function patchCachedLeadFromDetail(lead) {
+ if (!lead || !lead.crm_lead_id || !state.leads || !Array.isArray(state.leads.leads)) return;
+ const index = state.leads.leads.findIndex(function(item) {
+ return String(item && item.crm_lead_id || "") === String(lead.crm_lead_id);
+ });
+ if (index < 0) return;
+
+ const current = state.leads.leads[index];
+ [
+ "nombre", "telefono", "telefono_original", "pais_telefono", "correo",
+ "proyecto", "fuente", "formato", "etapa", "prioridad", "prioridad_efectiva",
+ "prioridad_modo", "prioridad_motivo", "proximo_seguimiento", "fecha_cita",
+ "presupuesto", "recamaras", "flex", "usuario_asignado", "campaign_id", "ad_id",
+ "campana_nombre", "anuncio_nombre"
+ ].forEach(function(key) {
+ if (Object.prototype.hasOwnProperty.call(lead, key)) current[key] = lead[key];
+ });
+ }
+
+ async function refreshCoreInBackground() {
+ if (coreRefreshBusy) return;
+ coreRefreshBusy = true;
+ try {
+ const data = await api("/api/bootstrap");
+ if (!data || typeof data !== "object") return;
+ const now = Date.now();
+ if (data.me && typeof data.me === "object") {
+ state.me = data.me;
+ applyMeToSidebar();
+ }
+ if (data.hoy && typeof data.hoy === "object") {
+ state.hoy = data.hoy;
+ state.lastHoyLoad = now;
+ }
+ if (data.leads && typeof data.leads === "object" && Array.isArray(data.leads.leads)) {
+ state.leads = data.leads;
+ if (!Number.isFinite(Number(state.leads.total))) state.leads.total = state.leads.leads.length;
+ state.lastLeadsLoad = now;
+ }
+
+ const route = parseRoute();
+ if (route.type === "view" && route.view === "hoy") {
+ await renderHoy(false, true);
+ } else if (route.type === "view" && route.view === "leads") {
+ await renderLeads(false, true);
+ }
+ } finally {
+ coreRefreshBusy = false;
+ }
+ }
+
  async function refreshLeadsInBackground() {
  if (leadsRefreshBusy) return;
  leadsRefreshBusy = true;
@@ -6438,7 +6508,7 @@ function renderAppPage() {
  async function loadHoy(force) {
  const now = Date.now();
  if (state.hoy && !force) {
- if (!state.lastHoyLoad || now - state.lastHoyLoad >= 30 * 1000) {
+ if (!state.lastHoyLoad || now - state.lastHoyLoad >= 45 * 1000) {
  pollHoyInBackground(true);
  }
  return state.hoy;
@@ -6454,7 +6524,7 @@ function renderAppPage() {
  async function loadLeads(force) {
  const now = Date.now();
  if (state.leads && !force) {
- if (!state.lastLeadsLoad || now - state.lastLeadsLoad >= 60 * 1000) {
+ if (!state.lastLeadsLoad || now - state.lastLeadsLoad >= 120 * 1000) {
  refreshLeadsInBackground();
  }
  return state.leads;
@@ -6471,7 +6541,7 @@ function renderAppPage() {
  async function loadCampaigns(force) {
  const now = Date.now();
  if (state.campaigns && !force) {
- if (!state.lastCampaignLoad || now - state.lastCampaignLoad >= 60 * 1000) {
+ if (!state.lastCampaignLoad || now - state.lastCampaignLoad >= 120 * 1000) {
  refreshCampaignsInBackground();
  }
  return state.campaigns;
@@ -8245,21 +8315,21 @@ function renderAppPage() {
  headers: {"Content-Type": "application/json"},
  body: JSON.stringify({expected_version: lead.operational_version, changes, message_context: messageContext || null})
  });
- state.hoy = null;
- state.leads = null;
+ // Conservamos los datos ya cargados para que volver a Hoy/Leads sea inmediato.
+ // Solo los marcamos como vencidos y los refrescamos silenciosamente después.
  state.lastHoyLoad = 0;
  state.lastLeadsLoad = 0;
 
  const returnedDetail = updateResult && updateResult.detail ? updateResult.detail : null;
+ patchCachedLeadFromDetail(returnedDetail && returnedDetail.lead);
  await renderLeadDetail(crmLeadId, fromView, returnedDetail);
 
- // Recalienta Hoy/Leads sin bloquear el guardado ni la ficha.
+ // Un solo bootstrap actualiza Hoy + Leads con UNA ejecución de Apps Script.
  setTimeout(function() {
- loadHoy(true).catch(function(error) {
- reportClientError(error, {accion: "hoy.postwrite.warm", endpoint: "/api/hoy"});
+ refreshCoreInBackground().catch(function(error) {
+ reportClientError(error, {accion: "core.postwrite.refresh", endpoint: "/api/bootstrap"});
  });
- refreshLeadsInBackground();
- }, 250);
+ }, 80);
 
  if (shouldMonitorCapi) {
  startCapiStatusMonitor(crmLeadId, expectedStage, capiSinceMs);
@@ -8315,8 +8385,9 @@ function renderAppPage() {
  const me = state.me || {};
  const user = me.usuario || {};
  const fullName = String(lead && lead.nombre || "").trim();
+ const firstName = firstNameForMessage(fullName);
  return {
- "{nombre}": fullName,
+ "{nombre}": firstName,
  "{nombre_completo}": fullName,
  "{proyecto}": String(lead && lead.proyecto || ""),
  "{presupuesto}": messageBudgetValue(lead || {}),
@@ -10981,9 +11052,10 @@ function renderAppPage() {
  lastHoyBackgroundPoll = Date.now();
 
  if (hasNewLead) {
- // La lista de Leads debe releerse la próxima vez que el usuario entre.
- state.leads = null;
+ // Conservamos la lista actual para que navegar siga siendo instantáneo,
+ // pero la marcamos como vencida y la refrescamos sin bloquear la pantalla.
  state.lastLeadsLoad = 0;
+ refreshLeadsInBackground();
 
  const route = parseRoute();
  if (route.type === "view" && route.view === "hoy") {
@@ -11085,8 +11157,11 @@ function renderAppPage() {
  await loadMe(false);
  await handleRoute();
 
- // Campañas no bloquea el arranque; la calentamos apenas Hoy ya quedó visible.
- if (!state.campaigns) refreshCampaignsInBackground();
+ // Campañas no bloquea el arranque. La precarga se difiere un poco para no
+ // competir con el primer render ni con una apertura inmediata de lead.
+ if (!state.campaigns) {
+ setTimeout(function() { refreshCampaignsInBackground(); }, 1200);
+ }
  if (!state.leads) prefetchSecondaryViews();
 
  } catch (error) {
