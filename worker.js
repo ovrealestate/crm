@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.12.5-no-response-followup
+ * Version: 0.12.6-stale-save-recovery
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.12.5-no-response-followup";
+const APP_VERSION = "0.12.6-stale-save-recovery";
 
 
 
@@ -6456,8 +6456,12 @@ function renderAppPage() {
  "nombre", "telefono", "telefono_original", "pais_telefono", "correo",
  "proyecto", "fuente", "formato", "etapa", "prioridad", "prioridad_efectiva",
  "prioridad_modo", "prioridad_motivo", "proximo_seguimiento", "fecha_cita",
- "presupuesto", "recamaras", "flex", "usuario_asignado", "campaign_id", "ad_id",
- "campana_nombre", "anuncio_nombre"
+ "seguimiento_actividad", "seguimiento_nota", "valor_operacion", "motivo_descarte",
+ "presupuesto", "presupuesto_min_mdp", "presupuesto_max_mdp",
+ "plazo", "plazo_texto_original", "plazo_min_meses", "plazo_max_meses",
+ "recamaras", "flex", "forma_pago", "forma_pago_otro",
+ "usuario_asignado", "campaign_id", "ad_id", "campana_nombre", "anuncio_nombre",
+ "operational_version"
  ].forEach(function(key) {
  if (Object.prototype.hasOwnProperty.call(lead, key)) current[key] = lead[key];
  });
@@ -8422,11 +8426,40 @@ function renderAppPage() {
  const shouldMonitorCapi = expectedStage && hasMetaLeadId && capiStages.indexOf(expectedStage) !== -1;
  const capiSinceMs = shouldMonitorCapi ? Date.now() : 0;
 
- const updateResult = await api("/api/leads/" + encodeURIComponent(crmLeadId), {
+ let updateResult;
+ try {
+ updateResult = await api("/api/leads/" + encodeURIComponent(crmLeadId), {
  method: "PATCH",
  headers: {"Content-Type": "application/json"},
  body: JSON.stringify({expected_version: lead.operational_version, changes, message_context: messageContext || null})
  });
+ } catch (error) {
+ // Si una escritura anterior ya se aplicó pero la ficha/modal conservó una
+ // versión vieja, la API protege correctamente con LEAD_CHANGED. En vez de
+ // mostrar un falso error, releemos la ficha y comprobamos si los cambios que
+ // el usuario pidió YA están guardados. Solo en ese caso lo tratamos como éxito.
+ const isStale = String(error && error.message || "").indexOf("Este lead cambió desde que abrió la ficha") !== -1;
+ if (!isStale) throw error;
+
+ const freshDetail = await api("/api/leads/" + encodeURIComponent(crmLeadId));
+ const freshLead = freshDetail && freshDetail.lead ? freshDetail.lead : null;
+ if (!freshLead || !leadAlreadyReflectsPatch(freshLead, changes)) throw error;
+
+ patchCachedLeadFromDetail(freshLead);
+ await renderLeadDetail(crmLeadId, fromView, freshDetail);
+ state.lastHoyLoad = 0;
+ state.lastLeadsLoad = 0;
+ setTimeout(function() {
+ refreshCoreInBackground().catch(function(refreshError) {
+ reportClientError(refreshError, {accion: "core.postwrite.recovery.refresh", endpoint: "/api/bootstrap"});
+ });
+ }, 80);
+
+ if (shouldMonitorCapi) {
+ startCapiStatusMonitor(crmLeadId, expectedStage, Math.max(0, capiSinceMs - 120000));
+ }
+ return freshDetail;
+ }
  // Conservamos los datos ya cargados para que volver a Hoy/Leads sea inmediato.
  // Solo los marcamos como vencidos y los refrescamos silenciosamente después.
  state.lastHoyLoad = 0;
@@ -8446,6 +8479,58 @@ function renderAppPage() {
  if (shouldMonitorCapi) {
  startCapiStatusMonitor(crmLeadId, expectedStage, capiSinceMs);
  }
+ }
+
+ function leadPatchDateKey(value) {
+ const parts = parseLeadDateParts(value);
+ if (!parts || !parts.date) return "";
+ return parts.date + "T" + (parts.time || "");
+ }
+
+ function leadPatchComparable(value) {
+ if (value === null || value === undefined) return "";
+ if (typeof value === "boolean") return value ? "1" : "0";
+ return String(value).trim();
+ }
+
+ function leadAlreadyReflectsPatch(freshLead, changes) {
+ if (!freshLead || !changes || typeof changes !== "object") return false;
+ const ignored = {confirmar_numero_erroneo: true};
+ const dateFields = {proximo_seguimiento: true, fecha_cita: true};
+ const booleanFields = {flex: true};
+ const numericFields = {
+ valor_operacion: true,
+ presupuesto_min_mdp: true,
+ presupuesto_max_mdp: true,
+ plazo_min_meses: true,
+ plazo_max_meses: true
+ };
+ const aliases = {plazo_texto_manual: "plazo"};
+ const keys = Object.keys(changes).filter(function(key) { return !ignored[key]; });
+ if (!keys.length) return false;
+
+ return keys.every(function(key) {
+ const actualKey = aliases[key] || key;
+ const expected = changes[key];
+ const actual = freshLead[actualKey];
+
+ if (dateFields[key]) {
+ return leadPatchDateKey(expected) === leadPatchDateKey(actual);
+ }
+ if (booleanFields[key]) {
+ return Boolean(expected) === Boolean(actual);
+ }
+ if (numericFields[key]) {
+ const a = Number(expected);
+ const b = Number(actual);
+ if (!Number.isFinite(a) && !Number.isFinite(b)) return true;
+ return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 1e-9;
+ }
+ if (key === "etapa" || key === "prioridad" || key === "motivo_descarte" || key === "forma_pago") {
+ return normalized(expected) === normalized(actual);
+ }
+ return leadPatchComparable(expected) === leadPatchComparable(actual);
+ });
  }
 
  function firstNameForMessage(value) {
