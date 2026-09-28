@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.12.4-whatsapp-quick-access
+ * Version: 0.12.5-no-response-followup
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.12.4-whatsapp-quick-access";
+const APP_VERSION = "0.12.5-no-response-followup";
 
 
 
@@ -8893,8 +8893,17 @@ function renderAppPage() {
  syncConfirmMode();
 
  const stageFollowupBox = element("div", "confirm-box");
+ const stageFollowupOptIn = element("label", "confirm-line");
+ const stageFollowupCheck = element("input");
+ stageFollowupCheck.type = "checkbox";
+ stageFollowupCheck.checked = normalized(lead.etapa) !== "no responde" || !!lead.proximo_seguimiento;
+ stageFollowupOptIn.append(stageFollowupCheck, document.createTextNode("Programar otro seguimiento"));
+ stageFollowupOptIn.style.display = "none";
+ stageFollowupBox.appendChild(stageFollowupOptIn);
+
+ const stageFollowupDetails = element("div");
  const stageFollowupSequence = followupSequenceBox(historial, lead);
- stageFollowupBox.appendChild(stageFollowupSequence);
+ stageFollowupDetails.appendChild(stageFollowupSequence);
  const stageFollowupDefault = automaticFollowupDefault(lead.proximo_seguimiento);
  const stageFollowupParts = parseLeadDateParts(stageFollowupDefault.value);
  const stageFollowupDateControl = createMxDateControl(stageFollowupDefault.value);
@@ -8904,11 +8913,26 @@ function renderAppPage() {
  wireDateTabToTime(stageFollowupDate, stageFollowupTime);
  const stageFollowupGrid = element("div", "followup-grid");
  stageFollowupGrid.append(stageFollowupDateControl.root, stageFollowupTimeControl.root);
- stageFollowupBox.appendChild(popoverField("Próximo seguimiento · fecha y hora", stageFollowupGrid));
- stageFollowupBox.appendChild(element("div", "confirm-summary",
- "Obligatorio al cambiar a esta etapa. Después puede editarlo desde la ficha del lead."));
+ stageFollowupDetails.appendChild(popoverField("Próximo seguimiento · fecha y hora", stageFollowupGrid));
+ stageFollowupBox.appendChild(stageFollowupDetails);
+
+ const stageFollowupSummary = element("div", "confirm-summary",
+ "Obligatorio al cambiar a esta etapa. Después puede editarlo desde la ficha del lead.");
+ stageFollowupBox.appendChild(stageFollowupSummary);
  stageFollowupBox.style.display = "none";
  pop.body.appendChild(stageFollowupBox);
+
+ const syncStageFollowupOptIn = function() {
+ const isNoResponse = normalized(select.value) === "no responde";
+ stageFollowupOptIn.style.display = isNoResponse ? "flex" : "none";
+ stageFollowupDetails.style.display = !isNoResponse || stageFollowupCheck.checked ? "block" : "none";
+ stageFollowupSummary.textContent = isNoResponse
+ ? (stageFollowupCheck.checked
+ ? "Opcional. Se programará otro intento de contacto; por defecto se propone mañana a las 9:00 a.m."
+ : "No se programará otro seguimiento. Puedes hacerlo después desde la ficha del lead.")
+ : "Obligatorio al cambiar a esta etapa. Después puede editarlo desde la ficha del lead.";
+ };
+ stageFollowupCheck.addEventListener("change", syncStageFollowupOptIn);
 
  const valueInput = element("input", "form-control");
  valueInput.type = "number";
@@ -8928,7 +8952,7 @@ function renderAppPage() {
 
  const sync = function() {
  const stage = normalized(select.value);
- const needsGenericFollowup = stage !== "no responde" && stage !== "descartado" && stage !== "cita agendada";
+ const needsGenericFollowup = stage !== "descartado" && stage !== "cita agendada";
  updateFollowupSequenceBox(stageFollowupSequence, historial, lead, {pendingContact: stage === "contactado"});
  discard.sync(stage === "descartado");
  contactBox.style.display = stage === "contactado" ? "grid" : "none";
@@ -8937,6 +8961,7 @@ function renderAppPage() {
  aptField.style.display = stage === "cita agendada" ? "grid" : "none";
  confirmBox.style.display = stage === "cita agendada" ? "grid" : "none";
  stageFollowupBox.style.display = needsGenericFollowup ? "grid" : "none";
+ syncStageFollowupOptIn();
  valueField.style.display = stage === "compra" ? "grid" : "none";
  };
  select.addEventListener("change", sync);
@@ -8961,8 +8986,13 @@ function renderAppPage() {
  changes.confirmar_numero_erroneo = true;
  }
  }
- if (stage === "no responde" || stage === "descartado") {
- // Estas etapas no deben conservar tareas futuras.
+ if (stage === "descartado") {
+ // Descartado sí es terminal: elimina cualquier tarea futura.
+ changes.proximo_seguimiento = "";
+ changes.seguimiento_actividad = "";
+ changes.seguimiento_nota = "";
+ } else if (stage === "no responde" && !stageFollowupCheck.checked) {
+ // No responde puede quedarse sin tarea si el usuario decide no intentar de nuevo todavía.
  changes.proximo_seguimiento = "";
  changes.seguimiento_actividad = "";
  changes.seguimiento_nota = "";
