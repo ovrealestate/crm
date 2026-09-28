@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.11.0-performance-fast-io
+ * Version: 0.12.0-commercial-profile-edit
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.11.0-performance-fast-io";
+const APP_VERSION = "0.12.1-template-bootstrap-fix";
 
 
 
@@ -4288,6 +4288,32 @@ function renderAppPage() {
 
  .stage-link-box.visible { display: block; }
 
+ .commercial-pair {
+ display: grid;
+ grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+ gap: 10px;
+ }
+
+ .commercial-original {
+ border: 1px solid var(--line);
+ background: #fafaf8;
+ border-radius: 11px;
+ padding: 10px 12px;
+ color: var(--muted);
+ font-size: 12px;
+ line-height: 1.45;
+ }
+
+ .commercial-preview {
+ font-size: 13px;
+ font-weight: 720;
+ color: #222;
+ }
+
+ @media (max-width: 520px) {
+ .commercial-pair { grid-template-columns: 1fr; }
+ }
+
  .form-textarea {
  min-height: 92px;
  padding-top: 10px;
@@ -6409,6 +6435,9 @@ function renderAppPage() {
  state.campaigns = data.campaigns;
  state.lastCampaignLoad = now;
  }
+ if (data.message_templates && typeof data.message_templates === "object" && Array.isArray(data.message_templates.templates)) {
+ state.messageTemplates = hideLegacyTemplateTypes(data.message_templates);
+ }
  state.bootstrapLoaded = true;
  applyMeToSidebar();
  return data;
@@ -6453,6 +6482,9 @@ function renderAppPage() {
  state.leads = data.leads;
  if (!Number.isFinite(Number(state.leads.total))) state.leads.total = state.leads.leads.length;
  state.lastLeadsLoad = now;
+ }
+ if (data.message_templates && typeof data.message_templates === "object" && Array.isArray(data.message_templates.templates)) {
+ state.messageTemplates = hideLegacyTemplateTypes(data.message_templates);
  }
 
  const route = parseRoute();
@@ -8442,8 +8474,21 @@ function renderAppPage() {
  }
 
  async function loadMessageTemplates() {
- if (state.messageTemplates) return state.messageTemplates;
- const data = hideLegacyTemplateTypes(await api("/api/templates"));
+ if (state.messageTemplates && Array.isArray(state.messageTemplates.templates)) {
+ return state.messageTemplates;
+ }
+
+ // Normalmente llega precargado en /api/bootstrap. Este fallback existe para
+ // sesiones antiguas o recargas parciales; nunca debe dejar el modal colgado.
+ const timeout = new Promise(function(_, reject) {
+ setTimeout(function() {
+ reject(new Error("Las plantillas tardaron demasiado en cargar. Cierre y vuelva a abrir este cuadro."));
+ }, 12000);
+ });
+ const data = hideLegacyTemplateTypes(await Promise.race([
+ api("/api/templates"),
+ timeout
+ ]));
  state.messageTemplates = data;
  return data;
  }
@@ -9019,6 +9064,282 @@ function renderAppPage() {
  }, "Programar");
  }
 
+
+ function commercialNumber(value) {
+ const n = Number(value);
+ return Number.isFinite(n) ? n : null;
+ }
+
+ function commercialDecimal(value) {
+ const n = Number(value);
+ if (!Number.isFinite(n)) return "";
+ const rounded = Math.round(n * 100) / 100;
+ if (Math.abs(rounded - Math.round(rounded)) < 0.000001) return rounded.toFixed(1);
+ if (Math.abs(rounded * 10 - Math.round(rounded * 10)) < 0.000001) return rounded.toFixed(1);
+ return rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+ }
+
+ function commercialBudgetDisplay(lead) {
+ const min = commercialNumber(lead && lead.presupuesto_min_mdp);
+ const max = commercialNumber(lead && lead.presupuesto_max_mdp);
+ if (min !== null && max !== null) {
+ if (Math.abs(min - max) < 0.000001) return commercialDecimal(min) + " MDP";
+ return commercialDecimal(min) + "–" + commercialDecimal(max) + " MDP";
+ }
+ return String(lead && lead.presupuesto || "").trim();
+ }
+
+ function commercialTermDisplay(lead) {
+ const current = String(lead && lead.plazo || "").trim();
+ if (current) return current;
+ const min = commercialNumber(lead && lead.plazo_min_meses);
+ const max = commercialNumber(lead && lead.plazo_max_meses);
+ if (min !== null && max !== null) {
+ if (min === max) return String(min) + (min === 1 ? " mes" : " meses");
+ return String(min) + "–" + String(max) + " meses";
+ }
+ return "";
+ }
+
+ function commercialBedroomsDisplay(lead) {
+ const bedrooms = String(lead && lead.recamaras || "").trim();
+ let text = "";
+ if (bedrooms) text = bedrooms === "1" ? "1 recámara" : bedrooms + " recámaras";
+ if (lead && lead.flex) text = text ? text + " + Flex" : "Flex";
+ return text;
+ }
+
+ function commercialPaymentDisplay(lead) {
+ const payment = String(lead && lead.forma_pago || "").trim();
+ const other = String(lead && lead.forma_pago_otro || "").trim();
+ if (!payment) return "";
+ if (normalized(payment) === "otro" && other) return "Otro · " + other;
+ return payment;
+ }
+
+ function originalAnswerSubtitle(original, current) {
+ const source = String(original || "").trim();
+ const shown = String(current || "").trim();
+ if (!source || normalized(source) === normalized(shown)) return "";
+ return "Respuesta original: " + source;
+ }
+
+ function appendOriginalAnswer(pop, label, value) {
+ const text = String(value || "").trim();
+ if (!text) return;
+ const box = element("div", "commercial-original");
+ box.appendChild(element("div", "form-label", label || "Respuesta original de campaña"));
+ box.appendChild(element("div", "", text));
+ pop.body.appendChild(box);
+ }
+
+ function makeNumberInput(value, options) {
+ const opts = options || {};
+ const input = element("input", "form-control");
+ input.type = "number";
+ input.inputMode = "decimal";
+ if (opts.min !== undefined) input.min = String(opts.min);
+ if (opts.step !== undefined) input.step = String(opts.step);
+ if (value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value))) {
+ input.value = String(value);
+ }
+ return input;
+ }
+
+ function openBedroomsPopover(lead, crmLeadId, fromView) {
+ const pop = openPopover("Editar recámaras");
+ const select = element("select", "form-control");
+ [["", "Sin definir"], ["1", "1 recámara"], ["2", "2 recámaras"], ["3", "3 recámaras"]].forEach(function(item) {
+ const option = element("option", "", item[1]);
+ option.value = item[0];
+ select.appendChild(option);
+ });
+ select.value = ["1", "2", "3"].indexOf(String(lead.recamaras || "")) !== -1 ? String(lead.recamaras) : "";
+
+ const flexLabel = element("label", "confirm-line");
+ const flex = element("input");
+ flex.type = "checkbox";
+ flex.checked = !!lead.flex;
+ flexLabel.append(flex, document.createTextNode(" Flex"));
+
+ const preview = element("div", "commercial-preview");
+ const updatePreview = function() {
+ preview.textContent = commercialBedroomsDisplay({recamaras: select.value, flex: flex.checked}) || "Sin definir";
+ };
+ select.addEventListener("change", updatePreview);
+ flex.addEventListener("change", updatePreview);
+
+ pop.body.append(
+ popoverField("Recámaras", select),
+ popoverField("Complemento", flexLabel),
+ popoverField("Así se mostrará", preview)
+ );
+ updatePreview();
+
+ popoverActions(pop, async function() {
+ await saveLeadPatch(lead, crmLeadId, fromView, {
+ recamaras: select.value,
+ flex: flex.checked
+ });
+ });
+ }
+
+ function openBudgetPopover(lead, crmLeadId, fromView) {
+ const pop = openPopover("Editar presupuesto");
+ const currentMin = commercialNumber(lead.presupuesto_min_mdp);
+ const currentMax = commercialNumber(lead.presupuesto_max_mdp);
+ const exactCurrent = currentMin !== null && currentMax !== null && Math.abs(currentMin - currentMax) < 0.000001;
+
+ const mode = element("select", "form-control");
+ [["EXACTO", "Monto exacto"], ["RANGO", "Rango"]].forEach(function(item) {
+ const option = element("option", "", item[1]);
+ option.value = item[0];
+ mode.appendChild(option);
+ });
+ mode.value = exactCurrent ? "EXACTO" : "RANGO";
+
+ const exact = makeNumberInput(exactCurrent ? currentMin : "", {min: 0.01, step: 0.1});
+ exact.placeholder = "Ej. 5.5";
+ const min = makeNumberInput(!exactCurrent ? currentMin : "", {min: 0.01, step: 0.1});
+ const max = makeNumberInput(!exactCurrent ? currentMax : "", {min: 0.01, step: 0.1});
+ min.placeholder = "Desde";
+ max.placeholder = "Hasta";
+
+ const exactField = popoverField("Monto (MDP)", exact);
+ const pair = element("div", "commercial-pair");
+ pair.append(popoverField("Desde (MDP)", min), popoverField("Hasta (MDP)", max));
+ const rangeField = element("div", "");
+ rangeField.appendChild(pair);
+
+ const sync = function() {
+ exactField.style.display = mode.value === "EXACTO" ? "grid" : "none";
+ rangeField.style.display = mode.value === "RANGO" ? "block" : "none";
+ };
+ mode.addEventListener("change", sync);
+ pop.body.append(popoverField("Tipo de presupuesto", mode), exactField, rangeField);
+ appendOriginalAnswer(pop, "Respuesta original de campaña", lead.presupuesto_texto_original);
+ sync();
+
+ popoverActions(pop, async function() {
+ let minValue;
+ let maxValue;
+ if (mode.value === "EXACTO") {
+ const value = Number(exact.value);
+ if (!(value > 0)) throw new Error("Capture un monto válido.");
+ minValue = value;
+ maxValue = value;
+ } else {
+ minValue = Number(min.value);
+ maxValue = Number(max.value);
+ if (!(minValue > 0) || !(maxValue > 0)) throw new Error("Capture Desde y Hasta.");
+ if (maxValue < minValue) throw new Error("Hasta no puede ser menor que Desde.");
+ }
+ await saveLeadPatch(lead, crmLeadId, fromView, {
+ presupuesto_min_mdp: minValue,
+ presupuesto_max_mdp: maxValue
+ });
+ });
+ }
+
+ function openTermPopover(lead, crmLeadId, fromView) {
+ const pop = openPopover("Editar plazo");
+ const currentMin = commercialNumber(lead.plazo_min_meses);
+ const currentMax = commercialNumber(lead.plazo_max_meses);
+ const hasRange = currentMin !== null && currentMax !== null;
+
+ const mode = element("select", "form-control");
+ [["RANGO", "Rango en meses"], ["TEXTO", "Texto libre / no aplica rango"]].forEach(function(item) {
+ const option = element("option", "", item[1]);
+ option.value = item[0];
+ mode.appendChild(option);
+ });
+ mode.value = hasRange ? "RANGO" : "TEXTO";
+
+ const min = makeNumberInput(hasRange ? currentMin : "", {min: 0, step: 1});
+ const max = makeNumberInput(hasRange ? currentMax : "", {min: 0, step: 1});
+ min.placeholder = "Desde";
+ max.placeholder = "Hasta";
+ const pair = element("div", "commercial-pair");
+ pair.append(popoverField("Desde (meses)", min), popoverField("Hasta (meses)", max));
+ const rangeField = element("div", "");
+ rangeField.appendChild(pair);
+
+ const freeText = element("input", "form-control");
+ freeText.type = "text";
+ freeText.placeholder = "Ej. Solo estoy explorando opciones";
+ if (!hasRange) freeText.value = String(lead.plazo || lead.plazo_texto_original || "");
+ const textField = popoverField("Plazo", freeText);
+
+ const sync = function() {
+ rangeField.style.display = mode.value === "RANGO" ? "block" : "none";
+ textField.style.display = mode.value === "TEXTO" ? "grid" : "none";
+ };
+ mode.addEventListener("change", sync);
+ pop.body.append(popoverField("Cómo quieres capturarlo", mode), rangeField, textField);
+ appendOriginalAnswer(pop, "Respuesta original de campaña", lead.plazo_texto_original);
+ sync();
+
+ popoverActions(pop, async function() {
+ if (mode.value === "RANGO") {
+ const minValue = Number(min.value);
+ const maxValue = Number(max.value);
+ if (!Number.isInteger(minValue) || !Number.isInteger(maxValue) || minValue < 0 || maxValue < 0) {
+ throw new Error("Capture meses enteros válidos.");
+ }
+ if (maxValue < minValue) throw new Error("Hasta no puede ser menor que Desde.");
+ await saveLeadPatch(lead, crmLeadId, fromView, {
+ plazo_min_meses: minValue,
+ plazo_max_meses: maxValue,
+ plazo_texto_manual: ""
+ });
+ } else {
+ const text = freeText.value.trim();
+ if (!text) throw new Error("Escriba el plazo.");
+ await saveLeadPatch(lead, crmLeadId, fromView, {
+ plazo_min_meses: null,
+ plazo_max_meses: null,
+ plazo_texto_manual: text
+ });
+ }
+ });
+ }
+
+ function openPaymentPopover(lead, options, crmLeadId, fromView) {
+ const pop = openPopover("Editar forma de pago");
+ const select = element("select", "form-control");
+ const blank = element("option", "", "Sin definir");
+ blank.value = "";
+ select.appendChild(blank);
+ (options.formas_pago || []).forEach(function(item) {
+ const option = element("option", "", item.nombre);
+ option.value = item.nombre;
+ select.appendChild(option);
+ });
+ select.value = lead.forma_pago || "";
+
+ const other = element("input", "form-control");
+ other.type = "text";
+ other.placeholder = "Especifique la forma de pago";
+ other.value = lead.forma_pago_otro || "";
+ const otherField = popoverField("Otro", other);
+ const sync = function() {
+ otherField.style.display = normalized(select.value) === "otro" ? "grid" : "none";
+ };
+ select.addEventListener("change", sync);
+ pop.body.append(popoverField("Forma de pago", select), otherField);
+ sync();
+
+ popoverActions(pop, async function() {
+ const payment = select.value;
+ const custom = normalized(payment) === "otro" ? other.value.trim() : "";
+ if (normalized(payment) === "otro" && !custom) throw new Error("Especifique la forma de pago.");
+ await saveLeadPatch(lead, crmLeadId, fromView, {
+ forma_pago: payment,
+ forma_pago_otro: custom
+ });
+ });
+ }
+
  function openNamePopover(lead, crmLeadId, fromView) {
  const pop = openPopover("Editar nombre");
  const input = element("input", "form-control");
@@ -9413,38 +9734,38 @@ function renderAppPage() {
  false
  );
 
- addInfoRow(
+ const termDisplay = commercialTermDisplay(lead);
+ addEditableInfoRow(
  commercial,
  "Plazo",
- lead.plazo_texto_original ||
- lead.plazo
+ termDisplay || "Sin definir",
+ originalAnswerSubtitle(lead.plazo_texto_original, termDisplay),
+ function() { openTermPopover(lead, crmLeadId, fromView); }
  );
 
- addInfoRow(
+ const budgetDisplay = commercialBudgetDisplay(lead);
+ addEditableInfoRow(
  commercial,
  "Presupuesto",
- lead.presupuesto_texto_original ||
- lead.presupuesto
+ budgetDisplay || "Sin definir",
+ originalAnswerSubtitle(lead.presupuesto_texto_original, budgetDisplay),
+ function() { openBudgetPopover(lead, crmLeadId, fromView); }
  );
 
- addInfoRow(
+ addEditableInfoRow(
  commercial,
  "Recámaras",
- lead.recamaras
+ commercialBedroomsDisplay(lead) || "Sin definir",
+ "",
+ function() { openBedroomsPopover(lead, crmLeadId, fromView); }
  );
 
- addInfoRow(
- commercial,
- "Flex",
- lead.flex
- ? "Sí"
- : ""
- );
-
- addInfoRow(
+ addEditableInfoRow(
  commercial,
  "Forma de pago",
- lead.forma_pago
+ commercialPaymentDisplay(lead) || "Sin definir",
+ "",
+ function() { openPaymentPopover(lead, data.opciones_operativas || {}, crmLeadId, fromView); }
  );
 
  const pipeline =
