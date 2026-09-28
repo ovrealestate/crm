@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.8.0-performance-bootstrap";
+const APP_VERSION = "0.9.0-more-templates";
 
 
 
@@ -859,6 +859,52 @@ async function routeRequest(request, env) {
  return jsonResponse({ok: true, data: upstream.data});
  }
 
+
+ /**
+ * API TEMPLATES — administración en Más > Plantillas
+ */
+ if (url.pathname === "/api/templates" && method === "GET") {
+ const session = await requireSession(request, env);
+ const upstream = await callAppsScript(env, session.email, {
+ action: "templates.list",
+ include_inactive: url.searchParams.get("include_inactive") === "1" ? "true" : "false"
+ });
+ const data = upstream && upstream.data !== undefined ? upstream.data : upstream;
+ if (!data || typeof data !== "object" || !Array.isArray(data.templates)) {
+ throw publicError(502, "El API no devolvió las plantillas.");
+ }
+ return jsonResponse({ok: true, data: data});
+ }
+
+ if (url.pathname === "/api/templates" && method === "POST") {
+ requireSameOrigin(request);
+ const session = await requireSession(request, env);
+ let body;
+ try { body = await request.json(); }
+ catch { throw publicError(400, "Solicitud inválida."); }
+ const upstream = await callAppsScript(env, session.email, {
+ action: "templates.create",
+ template: body?.template || {}
+ });
+ return jsonResponse({ok: true, data: upstream.data});
+ }
+
+ if (url.pathname.startsWith("/api/templates/") && method === "PATCH") {
+ requireSameOrigin(request);
+ const session = await requireSession(request, env);
+ const templateId = decodeURIComponent(url.pathname.substring("/api/templates/".length)).trim();
+ if (!templateId) throw publicError(400, "Falta template_id.");
+ let body;
+ try { body = await request.json(); }
+ catch { throw publicError(400, "Solicitud inválida."); }
+ const upstream = await callAppsScript(env, session.email, {
+ action: "templates.update",
+ template_id: templateId,
+ expected_version: Number(body?.expected_version || 0),
+ template: body?.template || {}
+ });
+ return jsonResponse({ok: true, data: upstream.data});
+ }
 
  /**
  * CLIENT / APP LOG
@@ -4514,6 +4560,231 @@ function renderAppPage() {
  color: var(--red);
  }
 
+ .more-card-button {
+ width: 100%;
+ text-align: left;
+ cursor: pointer;
+ transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+ }
+
+ .more-card-button:hover {
+ border-color: #b8b8b1;
+ transform: translateY(-1px);
+ box-shadow: 0 8px 22px rgba(0,0,0,.05);
+ }
+
+ .more-card-button .more-card-action {
+ margin-top: 14px;
+ font-size: 12px;
+ font-weight: 760;
+ color: #111;
+ }
+
+ .more-card-disabled {
+ background: #fafaf8;
+ }
+
+ .more-card-disabled .more-card-action {
+ color: var(--muted);
+ font-weight: 650;
+ }
+
+ .templates-page {
+ display: grid;
+ gap: 16px;
+ }
+
+ .templates-toolbar {
+ display: flex;
+ justify-content: space-between;
+ align-items: center;
+ gap: 12px;
+ flex-wrap: wrap;
+ }
+
+ .templates-back {
+ border: 0;
+ background: transparent;
+ padding: 0;
+ font: inherit;
+ font-size: 12px;
+ font-weight: 760;
+ color: #555;
+ cursor: pointer;
+ }
+
+ .templates-summary {
+ display: grid;
+ grid-template-columns: repeat(3, minmax(0, 1fr));
+ gap: 10px;
+ }
+
+ .templates-summary-card {
+ border: 1px solid var(--line);
+ border-radius: 14px;
+ background: #fff;
+ padding: 14px;
+ }
+
+ .templates-summary-card strong {
+ display: block;
+ font-size: 23px;
+ line-height: 1;
+ margin-bottom: 6px;
+ }
+
+ .templates-summary-card span {
+ color: var(--muted);
+ font-size: 11px;
+ font-weight: 650;
+ }
+
+ .templates-filters {
+ display: grid;
+ grid-template-columns: repeat(3, minmax(0, 1fr));
+ gap: 10px;
+ border: 1px solid var(--line);
+ border-radius: 14px;
+ padding: 12px;
+ background: #fff;
+ }
+
+ .templates-list {
+ display: grid;
+ gap: 10px;
+ }
+
+ .template-card {
+ border: 1px solid var(--line);
+ border-radius: 15px;
+ background: #fff;
+ padding: 15px;
+ display: grid;
+ gap: 10px;
+ }
+
+ .template-card.inactive {
+ opacity: .62;
+ background: #fafaf8;
+ }
+
+ .template-card-head {
+ display: flex;
+ justify-content: space-between;
+ align-items: flex-start;
+ gap: 12px;
+ }
+
+ .template-card-title {
+ font-size: 15px;
+ font-weight: 790;
+ margin-bottom: 5px;
+ }
+
+ .template-badges {
+ display: flex;
+ gap: 6px;
+ flex-wrap: wrap;
+ }
+
+ .template-badge {
+ display: inline-flex;
+ align-items: center;
+ min-height: 23px;
+ padding: 0 8px;
+ border-radius: 999px;
+ background: #f1f1ee;
+ color: #555;
+ font-size: 10px;
+ font-weight: 740;
+ }
+
+ .template-badge.default {
+ background: #111;
+ color: #fff;
+ }
+
+ .template-badge.project {
+ background: #eef3ff;
+ color: #294d98;
+ }
+
+ .template-message {
+ white-space: pre-wrap;
+ color: #444;
+ font-size: 12px;
+ line-height: 1.55;
+ }
+
+ .template-meta {
+ color: var(--muted);
+ font-size: 10px;
+ line-height: 1.4;
+ }
+
+ .template-editor-panel {
+ width: min(700px, 100%);
+ }
+
+ .template-editor-grid {
+ display: grid;
+ grid-template-columns: repeat(2, minmax(0, 1fr));
+ gap: 10px;
+ }
+
+ .template-editor-message {
+ min-height: 170px;
+ }
+
+ .template-token-section {
+ display: grid;
+ gap: 8px;
+ }
+
+ .template-token-list {
+ display: flex;
+ flex-wrap: wrap;
+ gap: 6px;
+ }
+
+ .template-token {
+ border: 1px solid #d9d9d3;
+ background: #f8f8f5;
+ border-radius: 999px;
+ padding: 6px 9px;
+ font-size: 11px;
+ font-weight: 700;
+ cursor: pointer;
+ }
+
+ .template-token:hover {
+ border-color: #aaa;
+ }
+
+ .template-preview {
+ border: 1px solid #deded8;
+ background: #fafaf8;
+ border-radius: 12px;
+ padding: 12px;
+ white-space: pre-wrap;
+ font-size: 12px;
+ line-height: 1.55;
+ min-height: 56px;
+ }
+
+ .template-checks {
+ display: grid;
+ gap: 8px;
+ }
+
+ .template-inline-check {
+ display: flex;
+ gap: 8px;
+ align-items: flex-start;
+ font-size: 12px;
+ line-height: 1.4;
+ }
+
  .placeholder-grid {
  display: grid;
  grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5270,6 +5541,12 @@ function renderAppPage() {
  grid-column: auto;
  }
 
+ .templates-summary,
+ .templates-filters,
+ .template-editor-grid {
+ grid-template-columns: 1fr;
+ }
+
  .placeholder-grid {
  grid-template-columns: 1fr;
  }
@@ -5441,6 +5718,10 @@ function renderAppPage() {
  hoy: null,
  leads: null,
  campaigns: null,
+ templatesAdmin: null,
+ templatesFilterType: "",
+ templatesFilterProject: "",
+ templatesFilterStatus: "all",
  selectedCampaignProject: "",
  campaignTrendSelectionByProject: {},
  currentView: "hoy",
@@ -5907,6 +6188,10 @@ function renderAppPage() {
  location.hash || "#hoy"
  );
 
+ if (hash === "#mas/plantillas") {
+ return {type: "templates"};
+ }
+
  if (
  hash.startsWith("#lead/")
  ) {
@@ -5956,6 +6241,15 @@ function renderAppPage() {
 
  const route =
  parseRoute();
+
+ if (route.type === "templates") {
+ setActiveNav("mas");
+ state.currentView = "mas";
+ document.getElementById("topbarTitle").textContent = "Plantillas";
+ await renderTemplatesAdmin();
+ restoreScroll("#mas/plantillas");
+ return;
+ }
 
  if (
  route.type === "lead"
@@ -9740,9 +10034,7 @@ function renderAppPage() {
 
 
  function renderMas() {
- const content =
- clearContent();
-
+ const content = clearContent();
  content.appendChild(
  createHero(
  "Configuración",
@@ -9751,72 +10043,401 @@ function renderAppPage() {
  )
  );
 
- const grid =
- element(
- "div",
- "placeholder-grid"
- );
-
+ const grid = element("div", "placeholder-grid");
  const items = [
- [
- "Catálogos",
- "Etapas, prioridades, formas de pago, descartes y demás opciones."
- ],
- [
- "Plantillas mensajes",
- "Mensajes reutilizables por proyecto y campaña."
- ],
- [
- "Variables mensajes",
- "Tokens como {nombre}, {proyecto}, {presupuesto} y más."
- ],
- [
- "Mi inmobiliaria",
- "Configuración general de OV Real Estate."
- ],
- [
- "Usuarios",
- "Administradores y asesores autorizados."
- ],
- [
- "Historial global",
- "Consulta cronológica de eventos de todos los leads."
- ]
+ {
+ title: "Plantillas mensajes",
+ text: "Crea y organiza mensajes reutilizables para contactos, seguimientos y citas.",
+ action: "Administrar plantillas →",
+ enabled: true,
+ onClick: function() { navigate("mas/plantillas"); }
+ },
+ {
+ title: "Catálogos",
+ text: "Etapas, prioridades, formas de pago, descartes y demás opciones.",
+ action: "Próximamente",
+ enabled: false
+ },
+ {
+ title: "Variables mensajes",
+ text: "Tokens como {nombre}, {proyecto}, {presupuesto} y más.",
+ action: "Se administran desde la hoja por ahora",
+ enabled: false
+ },
+ {
+ title: "Mi inmobiliaria",
+ text: "Configuración general de OV Real Estate.",
+ action: "Próximamente",
+ enabled: false
+ },
+ {
+ title: "Usuarios",
+ text: "Administradores y asesores autorizados.",
+ action: "Próximamente",
+ enabled: false
+ },
+ {
+ title: "Historial global",
+ text: "Consulta cronológica de eventos de todos los leads.",
+ action: "Próximamente",
+ enabled: false
+ }
  ];
 
- items.forEach(
- function(item) {
- const card =
- element(
- "section",
- "placeholder-card"
- );
-
- card.appendChild(
- element(
- "h3",
- "",
- item[0]
- )
- );
-
- card.appendChild(
- element(
- "p",
- "",
- item[1]
- )
- );
-
- grid.appendChild(
- card
- );
+ items.forEach(function(item) {
+ const card = element("section", "placeholder-card" + (item.enabled ? " more-card-button" : " more-card-disabled"));
+ card.appendChild(element("h3", "", item.title));
+ card.appendChild(element("p", "", item.text));
+ card.appendChild(element("div", "more-card-action", item.action));
+ if (item.enabled && item.onClick) {
+ card.tabIndex = 0;
+ card.setAttribute("role", "button");
+ card.addEventListener("click", item.onClick);
+ card.addEventListener("keydown", function(event) {
+ if (event.key === "Enter" || event.key === " ") {
+ event.preventDefault();
+ item.onClick();
  }
- );
+ });
+ }
+ grid.appendChild(card);
+ });
 
- content.appendChild(
- grid
- );
+ content.appendChild(grid);
+ }
+
+ function templateTypeLabel(code, data) {
+ const list = data && Array.isArray(data.tipos) ? data.tipos : [];
+ const found = list.find(function(item) { return String(item.codigo || "") === String(code || ""); });
+ return found ? found.nombre : (code || "General");
+ }
+
+ function getTemplateProjects(data) {
+ const set = new Set();
+ const leadRows = state.leads && Array.isArray(state.leads.leads) ? state.leads.leads : [];
+ leadRows.forEach(function(lead) {
+ const project = String(lead && lead.proyecto || "").trim();
+ if (project) set.add(project);
+ });
+ const templates = data && Array.isArray(data.templates) ? data.templates : [];
+ templates.forEach(function(template) {
+ const project = String(template && template.proyecto || "").trim();
+ if (project) set.add(project);
+ });
+ return Array.from(set).sort(function(a, b) { return a.localeCompare(b, "es"); });
+ }
+
+ function renderTemplatePreview(message, variables) {
+ let text = String(message || "");
+ (variables || []).forEach(function(variable) {
+ const token = String(variable.token || "");
+ if (!token) return;
+ const example = String(variable.ejemplo || variable.nombre || token);
+ text = text.split(token).join(example);
+ });
+ return text || "La vista previa aparecerá aquí.";
+ }
+
+ async function loadTemplatesAdmin(force) {
+ if (state.templatesAdmin && !force) return state.templatesAdmin;
+ const data = await api("/api/templates?include_inactive=1");
+ state.templatesAdmin = data;
+ return data;
+ }
+
+ function filteredTemplatesAdmin(data) {
+ const list = data && Array.isArray(data.templates) ? data.templates.slice() : [];
+ return list.filter(function(template) {
+ if (state.templatesFilterType && String(template.tipo_mensaje || "") !== state.templatesFilterType) return false;
+ if (state.templatesFilterProject && String(template.proyecto || "") !== state.templatesFilterProject) return false;
+ if (state.templatesFilterStatus === "active" && !template.activo) return false;
+ if (state.templatesFilterStatus === "inactive" && template.activo) return false;
+ return true;
+ });
+ }
+
+ function refreshTemplatesScreenFromState() {
+ if (location.hash !== "#mas/plantillas") return;
+ renderTemplatesAdmin(true).catch(function(error) {
+ showError(error.message);
+ reportClientError(error, {accion: "templates.render", endpoint: "/api/templates"});
+ });
+ }
+
+ function openTemplateEditor(template, data) {
+ const isEdit = !!(template && template.template_id);
+ const canEdit = !!(data && data.can_edit);
+ if (!canEdit) {
+ showError("Solo un administrador puede modificar plantillas.");
+ return;
+ }
+
+ const source = template || {};
+ const pop = openPopover(isEdit ? "Editar plantilla" : "Nueva plantilla");
+ pop.panel.classList.add("template-editor-panel");
+
+ const name = element("input", "form-control");
+ name.type = "text";
+ name.maxLength = 120;
+ name.placeholder = "Ej. Primer seguimiento · Montara";
+ name.value = source.nombre || "";
+ pop.body.appendChild(popoverField("Nombre", name));
+
+ const two = element("div", "template-editor-grid");
+ const type = element("select", "form-control");
+ (data.tipos || []).forEach(function(option) {
+ const item = element("option", "", option.nombre);
+ item.value = option.codigo;
+ if (option.codigo === source.tipo_mensaje) item.selected = true;
+ type.appendChild(item);
+ });
+ if (!source.tipo_mensaje && type.options.length) type.selectedIndex = 0;
+
+ const scope = element("select", "form-control");
+ [{value: "GLOBAL", label: "Global"}, {value: "PROYECTO", label: "Por proyecto"}].forEach(function(option) {
+ const item = element("option", "", option.label);
+ item.value = option.value;
+ if (option.value === String(source.alcance || "GLOBAL")) item.selected = true;
+ scope.appendChild(item);
+ });
+ two.appendChild(popoverField("Tipo", type));
+ two.appendChild(popoverField("Alcance", scope));
+ pop.body.appendChild(two);
+
+ const projectInput = element("input", "form-control");
+ projectInput.type = "text";
+ projectInput.placeholder = "Ej. Montara V1";
+ projectInput.value = source.proyecto || "";
+ const dataListId = "template-projects-" + String(Date.now());
+ projectInput.setAttribute("list", dataListId);
+ const dataList = element("datalist", "");
+ dataList.id = dataListId;
+ getTemplateProjects(data).forEach(function(project) {
+ const option = document.createElement("option");
+ option.value = project;
+ dataList.appendChild(option);
+ });
+ const projectWrap = element("div", "");
+ projectWrap.append(projectInput, dataList);
+ const projectField = popoverField("Proyecto", projectWrap);
+ pop.body.appendChild(projectField);
+
+ const message = element("textarea", "form-control form-textarea template-editor-message");
+ message.placeholder = "Escribe aquí el mensaje. Puedes insertar variables de abajo.";
+ message.value = source.mensaje || "";
+ pop.body.appendChild(popoverField("Mensaje", message));
+
+ const tokenSection = element("div", "template-token-section");
+ tokenSection.appendChild(element("div", "form-label", "Variables disponibles"));
+ const tokenList = element("div", "template-token-list");
+ (data.variables || []).forEach(function(variable) {
+ const button = element("button", "template-token", variable.token);
+ button.type = "button";
+ button.title = variable.nombre + (variable.ejemplo ? " · Ejemplo: " + variable.ejemplo : "");
+ button.addEventListener("click", function() {
+ const start = message.selectionStart == null ? message.value.length : message.selectionStart;
+ const end = message.selectionEnd == null ? start : message.selectionEnd;
+ message.value = message.value.slice(0, start) + variable.token + message.value.slice(end);
+ const next = start + variable.token.length;
+ message.focus();
+ try { message.setSelectionRange(next, next); } catch (_) {}
+ updatePreview();
+ });
+ tokenList.appendChild(button);
+ });
+ tokenSection.appendChild(tokenList);
+ tokenSection.appendChild(element("div", "popover-help", "Haz clic en una variable para insertarla donde está el cursor."));
+ pop.body.appendChild(tokenSection);
+
+ const preview = element("div", "template-preview");
+ const previewField = popoverField("Vista previa con ejemplos", preview);
+ pop.body.appendChild(previewField);
+
+ const checks = element("div", "template-checks");
+ const defaultLabel = element("label", "template-inline-check");
+ const defaultCheck = element("input");
+ defaultCheck.type = "checkbox";
+ defaultCheck.checked = !!source.predeterminada;
+ defaultLabel.append(defaultCheck, document.createTextNode(" Usar como predeterminada para este tipo y alcance"));
+ checks.appendChild(defaultLabel);
+
+ const activeLabel = element("label", "template-inline-check");
+ const activeCheck = element("input");
+ activeCheck.type = "checkbox";
+ activeCheck.checked = source.activo === undefined ? true : !!source.activo;
+ activeLabel.append(activeCheck, document.createTextNode(" Plantilla activa"));
+ checks.appendChild(activeLabel);
+ pop.body.appendChild(checks);
+
+ const syncScope = function() {
+ const projectScoped = scope.value === "PROYECTO";
+ projectField.style.display = projectScoped ? "grid" : "none";
+ if (!projectScoped) projectInput.value = "";
+ };
+ const updatePreview = function() {
+ preview.textContent = renderTemplatePreview(message.value, data.variables || []);
+ };
+ scope.addEventListener("change", syncScope);
+ message.addEventListener("input", updatePreview);
+ syncScope();
+ updatePreview();
+
+ popoverActions(pop, async function() {
+ const payload = {
+ nombre: name.value.trim(),
+ tipo_mensaje: type.value,
+ alcance: scope.value,
+ proyecto: scope.value === "PROYECTO" ? projectInput.value.trim() : "",
+ mensaje: message.value.trim(),
+ predeterminada: defaultCheck.checked,
+ activo: activeCheck.checked
+ };
+ if (!payload.nombre) throw new Error("Capture un nombre para la plantilla.");
+ if (payload.alcance === "PROYECTO" && !payload.proyecto) throw new Error("Capture el proyecto.");
+ if (!payload.mensaje) throw new Error("Capture el mensaje.");
+
+ if (isEdit) {
+ await api("/api/templates/" + encodeURIComponent(source.template_id), {
+ method: "PATCH",
+ body: JSON.stringify({expected_version: Number(source.version || 1), template: payload})
+ });
+ } else {
+ await api("/api/templates", {
+ method: "POST",
+ body: JSON.stringify({template: payload})
+ });
+ }
+ state.templatesAdmin = null;
+ await loadTemplatesAdmin(true);
+ refreshTemplatesScreenFromState();
+ }, isEdit ? "Guardar cambios" : "Crear plantilla");
+ }
+
+ async function renderTemplatesAdmin(fromStateOnly) {
+ const content = clearContent();
+ if (!fromStateOnly || !state.templatesAdmin) {
+ content.className = "loading";
+ content.textContent = "Cargando plantillas…";
+ }
+
+ try {
+ const data = await loadTemplatesAdmin(false);
+ const fragment = document.createDocumentFragment();
+ const page = element("div", "templates-page");
+
+ const toolbar = element("div", "templates-toolbar");
+ const back = element("button", "templates-back", "← Más");
+ back.type = "button";
+ back.addEventListener("click", function() { navigate("mas"); });
+ toolbar.appendChild(back);
+ if (data.can_edit) {
+ const add = element("button", "save-button", "+ Nueva plantilla");
+ add.type = "button";
+ add.addEventListener("click", function() { openTemplateEditor(null, data); });
+ toolbar.appendChild(add);
+ }
+ page.appendChild(toolbar);
+ page.appendChild(createHero(
+ "Mensajes reutilizables",
+ "Plantillas",
+ "Define aquí los textos que después usaremos en contactos, seguimientos y confirmaciones de cita."
+ ));
+
+ const templates = Array.isArray(data.templates) ? data.templates : [];
+ const summary = element("div", "templates-summary");
+ [
+ {label: "Activas", value: templates.filter(function(t) { return t.activo; }).length},
+ {label: "Globales", value: templates.filter(function(t) { return t.activo && t.alcance === "GLOBAL"; }).length},
+ {label: "Por proyecto", value: templates.filter(function(t) { return t.activo && t.alcance === "PROYECTO"; }).length}
+ ].forEach(function(item) {
+ const card = element("div", "templates-summary-card");
+ card.appendChild(element("strong", "", String(item.value)));
+ card.appendChild(element("span", "", item.label));
+ summary.appendChild(card);
+ });
+ page.appendChild(summary);
+
+ const filters = element("div", "templates-filters");
+ const typeFilter = element("select", "form-control");
+ const allTypes = element("option", "", "Todos los tipos");
+ allTypes.value = "";
+ typeFilter.appendChild(allTypes);
+ (data.tipos || []).forEach(function(option) {
+ const item = element("option", "", option.nombre);
+ item.value = option.codigo;
+ if (state.templatesFilterType === option.codigo) item.selected = true;
+ typeFilter.appendChild(item);
+ });
+ typeFilter.value = state.templatesFilterType;
+
+ const projectFilter = element("select", "form-control");
+ const allProjects = element("option", "", "Todos los proyectos");
+ allProjects.value = "";
+ projectFilter.appendChild(allProjects);
+ getTemplateProjects(data).forEach(function(project) {
+ const item = element("option", "", project);
+ item.value = project;
+ projectFilter.appendChild(item);
+ });
+ projectFilter.value = state.templatesFilterProject;
+
+ const statusFilter = element("select", "form-control");
+ [{value:"all", label:"Todas"}, {value:"active", label:"Activas"}, {value:"inactive", label:"Inactivas"}].forEach(function(option) {
+ const item = element("option", "", option.label);
+ item.value = option.value;
+ statusFilter.appendChild(item);
+ });
+ statusFilter.value = state.templatesFilterStatus;
+
+ typeFilter.addEventListener("change", function() { state.templatesFilterType = typeFilter.value; refreshTemplatesScreenFromState(); });
+ projectFilter.addEventListener("change", function() { state.templatesFilterProject = projectFilter.value; refreshTemplatesScreenFromState(); });
+ statusFilter.addEventListener("change", function() { state.templatesFilterStatus = statusFilter.value; refreshTemplatesScreenFromState(); });
+ filters.append(typeFilter, projectFilter, statusFilter);
+ page.appendChild(filters);
+
+ const list = element("div", "templates-list");
+ const filtered = filteredTemplatesAdmin(data);
+ if (!filtered.length) {
+ const empty = element("div", "empty-state", templates.length ? "No hay plantillas con estos filtros." : "Todavía no hay plantillas. Crea la primera para empezar.");
+ list.appendChild(empty);
+ } else {
+ filtered.forEach(function(template) {
+ const card = element("section", "template-card" + (template.activo ? "" : " inactive"));
+ const head = element("div", "template-card-head");
+ const titleWrap = element("div", "");
+ titleWrap.appendChild(element("div", "template-card-title", template.nombre || "Sin nombre"));
+ const badges = element("div", "template-badges");
+ badges.appendChild(element("span", "template-badge", templateTypeLabel(template.tipo_mensaje, data)));
+ const scopeText = template.alcance === "PROYECTO" ? (template.proyecto || "Proyecto") : "Global";
+ badges.appendChild(element("span", "template-badge" + (template.alcance === "PROYECTO" ? " project" : ""), scopeText));
+ if (template.predeterminada) badges.appendChild(element("span", "template-badge default", "Predeterminada"));
+ if (!template.activo) badges.appendChild(element("span", "template-badge", "Inactiva"));
+ titleWrap.appendChild(badges);
+ head.appendChild(titleWrap);
+ if (data.can_edit) {
+ const edit = element("button", "secondary-button", "Editar");
+ edit.type = "button";
+ edit.addEventListener("click", function() { openTemplateEditor(template, data); });
+ head.appendChild(edit);
+ }
+ card.appendChild(head);
+ card.appendChild(element("div", "template-message", template.mensaje || ""));
+ const meta = ["v" + String(template.version || 1), template.updated_by || "", template.updated_at ? formatDateValue(template.updated_at, true) : ""].filter(Boolean).join(" · ");
+ if (meta) card.appendChild(element("div", "template-meta", meta));
+ list.appendChild(card);
+ });
+ }
+ page.appendChild(list);
+ page.appendChild(element("div", "campaign-readonly-note", "Las plantillas se guardan en la hoja Plantillas. Desactivar conserva el historial; no se eliminan registros."));
+ fragment.appendChild(page);
+ content.className = "";
+ content.replaceChildren(fragment);
+ } catch (error) {
+ content.className = "";
+ content.replaceChildren(element("div", "empty-state", "No se pudieron cargar las plantillas."));
+ showError(error.message);
+ reportClientError(error, {accion: "templates.list", endpoint: "/api/templates"});
+ }
  }
 
 
