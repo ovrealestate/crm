@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.12.6-stale-save-recovery
+ * Version: 0.12.7-no-response-followup-note
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.12.6-stale-save-recovery";
+const APP_VERSION = "0.12.7-no-response-followup-note";
 
 
 
@@ -8999,6 +8999,14 @@ function renderAppPage() {
  const stageFollowupGrid = element("div", "followup-grid");
  stageFollowupGrid.append(stageFollowupDateControl.root, stageFollowupTimeControl.root);
  stageFollowupDetails.appendChild(popoverField("Próximo seguimiento · fecha y hora", stageFollowupGrid));
+
+ const stageFollowupNote = element("textarea", "form-control");
+ stageFollowupNote.rows = 3;
+ stageFollowupNote.placeholder = "Ej. Si no responde mañana, descartar. / Preguntarle si revisó la información enviada.";
+ const stageFollowupNoteField = popoverField("Nota / antecedente", stageFollowupNote);
+ stageFollowupNoteField.style.display = "none";
+ stageFollowupDetails.appendChild(stageFollowupNoteField);
+
  stageFollowupBox.appendChild(stageFollowupDetails);
 
  const stageFollowupSummary = element("div", "confirm-summary",
@@ -9011,6 +9019,7 @@ function renderAppPage() {
  const isNoResponse = normalized(select.value) === "no responde";
  stageFollowupOptIn.style.display = isNoResponse ? "flex" : "none";
  stageFollowupDetails.style.display = !isNoResponse || stageFollowupCheck.checked ? "block" : "none";
+ stageFollowupNoteField.style.display = isNoResponse && stageFollowupCheck.checked ? "grid" : "none";
  stageFollowupSummary.textContent = isNoResponse
  ? (stageFollowupCheck.checked
  ? "Opcional. Se programará otro intento de contacto; por defecto se propone mañana a las 9:00 a.m."
@@ -9089,6 +9098,9 @@ function renderAppPage() {
  if (!stageFollowupTimeValue) throw new Error("Capture la hora del próximo seguimiento. Puede escribir 1800 para 6:00 PM o usar el reloj.");
  stageFollowupTime.value = mxTimeDisplayFrom24(stageFollowupTimeValue);
  changes.proximo_seguimiento = apiLocalDateTimeValue(stageFollowupDateValue, stageFollowupTimeValue);
+ if (stage === "no responde") {
+ changes.seguimiento_nota = String(stageFollowupNote.value || "").trim();
+ }
  }
  if (stage === "cita agendada") {
  const appointmentDateValue = parseMxDateInput(appointmentDate.value);
