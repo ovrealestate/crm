@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.12.8-leads-compact-summary
+ * Version: 0.13.0-catalogs-admin
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.12.8-leads-compact-summary";
+const APP_VERSION = "0.13.0-catalogs-admin";
 
 
 
@@ -905,6 +905,65 @@ async function routeRequest(request, env) {
  template_id: templateId,
  expected_version: Number(body?.expected_version || 0),
  template: body?.template || {}
+ });
+ return jsonResponse({ok: true, data: upstream.data});
+ }
+
+ /**
+ * API CATALOGS — administración segura en Más > Catálogos
+ */
+ if (url.pathname === "/api/catalogs" && method === "GET") {
+ const session = await requireSession(request, env);
+ const upstream = await callAppsScript(env, session.email, {
+ action: "catalogs.list"
+ });
+ const data = upstream && upstream.data !== undefined ? upstream.data : upstream;
+ if (!data || typeof data !== "object" || !Array.isArray(data.catalogs)) {
+ throw publicError(502, "El API no devolvió los catálogos.");
+ }
+ return jsonResponse({ok: true, data: data});
+ }
+
+ if (url.pathname === "/api/catalogs" && method === "POST") {
+ requireSameOrigin(request);
+ const session = await requireSession(request, env);
+ let body;
+ try { body = await request.json(); }
+ catch { throw publicError(400, "Solicitud inválida."); }
+ const upstream = await callAppsScript(env, session.email, {
+ action: "catalogs.create",
+ catalogo: String(body?.catalogo || ""),
+ option: body?.option || {}
+ });
+ return jsonResponse({ok: true, data: upstream.data});
+ }
+
+ if (url.pathname === "/api/catalogs/reorder" && method === "POST") {
+ requireSameOrigin(request);
+ const session = await requireSession(request, env);
+ let body;
+ try { body = await request.json(); }
+ catch { throw publicError(400, "Solicitud inválida."); }
+ const upstream = await callAppsScript(env, session.email, {
+ action: "catalogs.reorder",
+ catalogo: String(body?.catalogo || ""),
+ option_ids: Array.isArray(body?.option_ids) ? body.option_ids : []
+ });
+ return jsonResponse({ok: true, data: upstream.data});
+ }
+
+ if (url.pathname.startsWith("/api/catalogs/") && method === "PATCH") {
+ requireSameOrigin(request);
+ const session = await requireSession(request, env);
+ const optionId = decodeURIComponent(url.pathname.substring("/api/catalogs/".length)).trim();
+ if (!optionId) throw publicError(400, "Falta option_id.");
+ let body;
+ try { body = await request.json(); }
+ catch { throw publicError(400, "Solicitud inválida."); }
+ const upstream = await callAppsScript(env, session.email, {
+ action: "catalogs.update",
+ option_id: optionId,
+ option: body?.option || {}
  });
  return jsonResponse({ok: true, data: upstream.data});
  }
@@ -5751,6 +5810,495 @@ function renderAppPage() {
  gap: 3px;
  }
  }
+
+
+ /* ===== Catálogos ===== */
+ .catalogs-page {
+ display: grid;
+ gap: 16px;
+ }
+
+ .catalog-metrics {
+ display: grid;
+ grid-template-columns: repeat(4, minmax(0, 1fr));
+ gap: 10px;
+ }
+
+ .catalog-metric-card {
+ min-width: 0;
+ padding: 16px;
+ border: 1px solid var(--line);
+ border-radius: 16px;
+ background: #fff;
+ }
+
+ .catalog-metric-card strong {
+ display: block;
+ font-size: 24px;
+ line-height: 1;
+ margin-bottom: 7px;
+ letter-spacing: -.02em;
+ }
+
+ .catalog-metric-card span {
+ display: block;
+ color: var(--muted);
+ font-size: 11px;
+ font-weight: 700;
+ }
+
+ .catalog-metric-card.ok {
+ border-color: #cfe4d7;
+ background: #fbfefc;
+ }
+
+ .catalog-metric-card.warning {
+ border-color: #ead9b4;
+ background: #fffdf8;
+ }
+
+ .catalog-health {
+ display: flex;
+ align-items: center;
+ gap: 12px;
+ border-radius: 15px;
+ padding: 13px 15px;
+ border: 1px solid var(--line);
+ background: #fff;
+ }
+
+ .catalog-health.ok {
+ border-color: #cfe4d7;
+ background: #f8fcf9;
+ }
+
+ .catalog-health.warning {
+ border-color: #ead9b4;
+ background: #fffaf0;
+ }
+
+ .catalog-health-icon {
+ width: 30px;
+ height: 30px;
+ border-radius: 50%;
+ display: grid;
+ place-items: center;
+ background: #111;
+ color: #fff;
+ font-weight: 850;
+ flex: 0 0 auto;
+ }
+
+ .catalog-health strong,
+ .catalog-health span {
+ display: block;
+ }
+
+ .catalog-health strong {
+ font-size: 13px;
+ margin-bottom: 2px;
+ }
+
+ .catalog-health span {
+ font-size: 11px;
+ color: var(--muted);
+ line-height: 1.4;
+ }
+
+ .catalog-group-tabs {
+ display: flex;
+ gap: 8px;
+ flex-wrap: wrap;
+ }
+
+ .catalog-group-tab {
+ border: 1px solid var(--line);
+ border-radius: 999px;
+ background: #fff;
+ color: #555;
+ padding: 9px 14px;
+ font: inherit;
+ font-size: 12px;
+ font-weight: 760;
+ cursor: pointer;
+ }
+
+ .catalog-group-tab.active {
+ background: #111;
+ color: #fff;
+ border-color: #111;
+ }
+
+ .catalog-group-caption {
+ margin-top: -8px;
+ color: var(--muted);
+ font-size: 11px;
+ }
+
+ .catalog-workspace {
+ display: grid;
+ grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+ gap: 14px;
+ align-items: start;
+ }
+
+ .catalog-nav-panel,
+ .catalog-detail-panel {
+ border: 1px solid var(--line);
+ border-radius: 18px;
+ background: #fff;
+ }
+
+ .catalog-nav-panel {
+ padding: 12px;
+ position: sticky;
+ top: 86px;
+ }
+
+ .catalog-search {
+ margin-bottom: 10px;
+ }
+
+ .catalog-nav-list {
+ display: grid;
+ gap: 7px;
+ }
+
+ .catalog-nav-item {
+ width: 100%;
+ border: 1px solid transparent;
+ border-radius: 13px;
+ background: transparent;
+ text-align: left;
+ padding: 12px;
+ font: inherit;
+ cursor: pointer;
+ transition: background .15s ease, border-color .15s ease;
+ }
+
+ .catalog-nav-item:hover {
+ background: #f7f7f5;
+ }
+
+ .catalog-nav-item.active {
+ background: #f3f3f0;
+ border-color: #d7d7d1;
+ }
+
+ .catalog-nav-title-row {
+ display: flex;
+ justify-content: space-between;
+ gap: 8px;
+ align-items: center;
+ }
+
+ .catalog-nav-title-row strong {
+ font-size: 13px;
+ }
+
+ .catalog-nav-count {
+ min-width: 26px;
+ height: 22px;
+ padding: 0 7px;
+ display: inline-grid;
+ place-items: center;
+ border-radius: 999px;
+ background: #ecece8;
+ color: #444;
+ font-size: 10px;
+ font-weight: 800;
+ }
+
+ .catalog-nav-use {
+ margin-top: 4px;
+ color: var(--muted);
+ font-size: 10px;
+ line-height: 1.35;
+ }
+
+ .catalog-nav-meta {
+ display: flex;
+ gap: 7px;
+ flex-wrap: wrap;
+ margin-top: 7px;
+ font-size: 9px;
+ font-weight: 760;
+ color: #777;
+ }
+
+ .catalog-nav-meta .editable { color: #237246; }
+ .catalog-nav-meta .protected { color: #745d28; }
+
+ .catalog-detail-panel {
+ padding: 18px;
+ min-width: 0;
+ }
+
+ .catalog-detail-head {
+ display: flex;
+ justify-content: space-between;
+ gap: 18px;
+ align-items: flex-start;
+ margin-bottom: 14px;
+ }
+
+ .catalog-title-line {
+ display: flex;
+ align-items: center;
+ gap: 8px;
+ flex-wrap: wrap;
+ }
+
+ .catalog-detail-title {
+ margin: 0;
+ font-size: 20px;
+ letter-spacing: -.02em;
+ }
+
+ .catalog-group-badge,
+ .catalog-mini-badge {
+ display: inline-flex;
+ align-items: center;
+ border-radius: 999px;
+ border: 1px solid var(--line);
+ background: #f7f7f5;
+ padding: 4px 7px;
+ font-size: 9px;
+ font-weight: 800;
+ color: #666;
+ }
+
+ .catalog-group-badge.operational { color: #216e45; background: #f4fbf6; border-color: #cfe4d7; }
+ .catalog-group-badge.system { color: #66501f; background: #fffaf0; border-color: #ead9b4; }
+ .catalog-group-badge.legacy { color: #666; background: #f4f4f2; }
+
+ .catalog-detail-description {
+ margin: 8px 0 0;
+ color: #555;
+ font-size: 12px;
+ line-height: 1.5;
+ max-width: 720px;
+ }
+
+ .catalog-context-line {
+ display: flex;
+ flex-wrap: wrap;
+ gap: 8px 14px;
+ margin-top: 9px;
+ color: var(--muted);
+ font-size: 10px;
+ font-weight: 650;
+ }
+
+ .catalog-option-toolbar {
+ display: grid;
+ grid-template-columns: minmax(0, 1fr) 160px;
+ gap: 9px;
+ padding: 10px;
+ border-radius: 14px;
+ background: #f7f7f5;
+ margin-bottom: 12px;
+ }
+
+ .catalog-option-list {
+ display: grid;
+ gap: 8px;
+ }
+
+ .catalog-option-row {
+ display: grid;
+ grid-template-columns: 34px minmax(0, 1fr) auto;
+ gap: 12px;
+ align-items: center;
+ border: 1px solid var(--line);
+ border-radius: 14px;
+ padding: 12px;
+ background: #fff;
+ }
+
+ .catalog-option-row.inactive {
+ background: #fafaf8;
+ opacity: .7;
+ }
+
+ .catalog-option-row.locked {
+ background: #fcfcfa;
+ }
+
+ .catalog-option-order {
+ width: 30px;
+ height: 30px;
+ display: grid;
+ place-items: center;
+ border-radius: 9px;
+ background: #f1f1ee;
+ color: #666;
+ font-size: 10px;
+ font-weight: 800;
+ }
+
+ .catalog-option-main {
+ min-width: 0;
+ }
+
+ .catalog-option-name-line {
+ display: flex;
+ align-items: center;
+ flex-wrap: wrap;
+ gap: 6px;
+ min-width: 0;
+ }
+
+ .catalog-option-name {
+ font-size: 13px;
+ }
+
+ .catalog-mini-badge.protected { color: #6d5620; background: #fffaf0; border-color: #ead9b4; }
+ .catalog-mini-badge.inactive { color: #777; }
+ .catalog-mini-badge.code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 650; color: #888; }
+
+ .catalog-option-note {
+ margin-top: 5px;
+ color: #595959;
+ font-size: 10px;
+ line-height: 1.4;
+ display: -webkit-box;
+ -webkit-line-clamp: 2;
+ -webkit-box-orient: vertical;
+ overflow: hidden;
+ }
+
+ .catalog-option-usage {
+ display: flex;
+ flex-wrap: wrap;
+ gap: 6px 12px;
+ margin-top: 6px;
+ color: var(--muted);
+ font-size: 9px;
+ }
+
+ .catalog-option-actions {
+ display: flex;
+ align-items: center;
+ justify-content: flex-end;
+ gap: 6px;
+ flex-wrap: wrap;
+ }
+
+ .catalog-icon-button {
+ width: 32px;
+ height: 32px;
+ border: 1px solid var(--line);
+ border-radius: 9px;
+ background: #fff;
+ color: #444;
+ font: inherit;
+ font-weight: 800;
+ cursor: pointer;
+ }
+
+ .catalog-icon-button:disabled {
+ opacity: .3;
+ cursor: default;
+ }
+
+ .catalog-toggle {
+ border: 1px solid var(--line);
+ border-radius: 999px;
+ min-width: 68px;
+ padding: 7px 10px;
+ font: inherit;
+ font-size: 9px;
+ font-weight: 800;
+ cursor: pointer;
+ }
+
+ .catalog-toggle.on {
+ background: #eff8f2;
+ border-color: #c6dfcf;
+ color: #216e45;
+ }
+
+ .catalog-toggle.off {
+ background: #f4f4f2;
+ color: #777;
+ }
+
+ .catalog-edit-button {
+ padding: 7px 10px;
+ min-height: 32px;
+ }
+
+ .catalog-foot-note {
+ margin-top: 12px;
+ border-top: 1px solid var(--line);
+ padding-top: 12px;
+ color: var(--muted);
+ font-size: 10px;
+ line-height: 1.5;
+ }
+
+ .catalog-empty-mini {
+ color: var(--muted);
+ font-size: 11px;
+ padding: 14px 10px;
+ }
+
+ .catalog-system-code {
+ border: 1px solid var(--line);
+ border-radius: 12px;
+ padding: 10px 12px;
+ background: #f8f8f6;
+ display: flex;
+ justify-content: space-between;
+ gap: 10px;
+ align-items: center;
+ }
+
+ .catalog-code-label {
+ color: var(--muted);
+ font-size: 10px;
+ font-weight: 700;
+ }
+
+ .catalog-code-value {
+ font-size: 10px;
+ color: #555;
+ }
+
+ .catalog-lock-note {
+ border: 1px solid #ead9b4;
+ background: #fffaf0;
+ color: #6c5727;
+ padding: 10px 12px;
+ border-radius: 12px;
+ font-size: 10px;
+ line-height: 1.45;
+ }
+
+ .catalog-note-input {
+ min-height: 86px;
+ }
+
+ @media (max-width: 980px) {
+ .catalog-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ .catalog-workspace { grid-template-columns: 1fr; }
+ .catalog-nav-panel { position: static; }
+ .catalog-nav-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ }
+
+ @media (max-width: 640px) {
+ .catalog-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ .catalog-nav-list { grid-template-columns: 1fr; }
+ .catalog-detail-panel { padding: 14px; }
+ .catalog-detail-head { display: grid; }
+ .catalog-detail-head .save-button { width: 100%; }
+ .catalog-option-toolbar { grid-template-columns: 1fr; }
+ .catalog-option-row { grid-template-columns: 30px minmax(0, 1fr); align-items: start; }
+ .catalog-option-actions { grid-column: 2; justify-content: flex-start; margin-top: 2px; }
+ .catalog-mini-badge.code { display: none; }
+ .catalog-health { align-items: flex-start; }
+ }
  </style>
 </head>
 
@@ -5839,6 +6387,12 @@ function renderAppPage() {
  campaigns: null,
  templatesAdmin: null,
  messageTemplates: null,
+ catalogsAdmin: null,
+ catalogsGroup: "operational",
+ catalogsSelectedKey: "forma_pago",
+ catalogsSearch: "",
+ catalogsOptionSearch: "",
+ catalogsOptionStatus: "all",
  templatesFilterType: "",
  templatesFilterProject: "",
  templatesFilterStatus: "all",
@@ -6361,6 +6915,10 @@ function renderAppPage() {
  return {type: "templates"};
  }
 
+ if (hash === "#mas/catalogos") {
+ return {type: "catalogs"};
+ }
+
  if (
  hash.startsWith("#lead/")
  ) {
@@ -6417,6 +6975,15 @@ function renderAppPage() {
  document.getElementById("topbarTitle").textContent = "Plantillas";
  await renderTemplatesAdmin();
  restoreScroll("#mas/plantillas");
+ return;
+ }
+
+ if (route.type === "catalogs") {
+ setActiveNav("mas");
+ state.currentView = "mas";
+ document.getElementById("topbarTitle").textContent = "Catálogos";
+ await renderCatalogsAdmin();
+ restoreScroll("#mas/catalogos");
  return;
  }
 
@@ -11355,9 +11922,10 @@ function renderAppPage() {
  },
  {
  title: "Catálogos",
- text: "Etapas, prioridades, formas de pago, descartes y demás opciones.",
- action: "Próximamente",
- enabled: false
+ text: "Administra opciones operativas, orden, visibilidad y consistencia del sistema.",
+ action: "Administrar catálogos →",
+ enabled: true,
+ onClick: function() { navigate("mas/catalogos"); }
  },
  {
  title: "Variables mensajes",
@@ -11739,6 +12307,428 @@ function renderAppPage() {
  content.replaceChildren(element("div", "empty-state", "No se pudieron cargar las plantillas."));
  showError(error.message);
  reportClientError(error, {accion: "templates.list", endpoint: "/api/templates"});
+ }
+ }
+
+
+ function catalogGroupLabel(group) {
+ if (group === "system") return "Sistema";
+ if (group === "legacy") return "Histórico";
+ return "Operativo";
+ }
+
+ function catalogGroupDescription(group) {
+ if (group === "system") return "Valores protegidos porque participan en automatizaciones y reglas centrales.";
+ if (group === "legacy") return "Datos conservados por compatibilidad. No se usan para nuevas capturas.";
+ return "Opciones que puedes administrar sin tocar código ni Google Sheets.";
+ }
+
+ async function loadCatalogsAdmin(force) {
+ if (state.catalogsAdmin && !force) return state.catalogsAdmin;
+ const data = await api("/api/catalogs");
+ state.catalogsAdmin = data;
+ const catalogs = Array.isArray(data.catalogs) ? data.catalogs : [];
+ const selectedExists = catalogs.some(function(c) { return c.key === state.catalogsSelectedKey && c.group === state.catalogsGroup; });
+ if (!selectedExists) {
+ const first = catalogs.find(function(c) { return c.group === state.catalogsGroup; }) || catalogs[0];
+ state.catalogsSelectedKey = first ? first.key : "";
+ }
+ return data;
+ }
+
+ function getSelectedCatalogAdmin(data) {
+ const catalogs = data && Array.isArray(data.catalogs) ? data.catalogs : [];
+ return catalogs.find(function(c) { return c.key === state.catalogsSelectedKey; }) ||
+ catalogs.find(function(c) { return c.group === state.catalogsGroup; }) ||
+ catalogs[0] || null;
+ }
+
+ function refreshCatalogsScreenFromState() {
+ const route = parseRoute();
+ if (route.type === "catalogs") renderCatalogsAdmin(true);
+ }
+
+ function catalogVisibleOptions(catalog) {
+ let rows = catalog && Array.isArray(catalog.options) ? catalog.options.slice() : [];
+ const search = normalized(state.catalogsOptionSearch || "");
+ if (search) {
+ rows = rows.filter(function(option) {
+ return normalized([option.nombre, option.codigo_sistema, option.notas].filter(Boolean).join(" ")).includes(search);
+ });
+ }
+ if (state.catalogsOptionStatus === "active") rows = rows.filter(function(o) { return !!o.activo; });
+ if (state.catalogsOptionStatus === "inactive") rows = rows.filter(function(o) { return !o.activo; });
+ return rows;
+ }
+
+ function openCatalogOptionEditor(catalog, option) {
+ if (!catalog || !catalog.editable) return;
+ const isEdit = !!option;
+ const source = option || {};
+ const pop = openPopover(isEdit ? "Editar opción" : "Nueva opción");
+
+ const name = element("input", "form-control");
+ name.type = "text";
+ name.maxLength = 100;
+ name.placeholder = "Nombre visible en el CRM";
+ name.value = source.nombre || "";
+ name.disabled = isEdit && !source.can_rename;
+ pop.body.appendChild(popoverField("Nombre", name));
+
+ if (isEdit && source.codigo_sistema) {
+ const system = element("div", "catalog-system-code");
+ system.appendChild(element("span", "catalog-code-label", "Código interno"));
+ system.appendChild(element("code", "catalog-code-value", source.codigo_sistema));
+ pop.body.appendChild(system);
+ }
+
+ const notes = element("textarea", "form-control form-textarea catalog-note-input");
+ notes.maxLength = 500;
+ notes.placeholder = "Nota interna opcional: para qué se usa o cuándo elegirla.";
+ notes.value = source.notas || "";
+ notes.disabled = isEdit && !source.can_edit_notes;
+ pop.body.appendChild(popoverField("Nota interna", notes));
+
+ const activeLabel = element("label", "template-inline-check");
+ const active = element("input");
+ active.type = "checkbox";
+ active.checked = source.activo === undefined ? true : !!source.activo;
+ active.disabled = isEdit && !source.can_toggle;
+ activeLabel.append(active, document.createTextNode(" Opción activa"));
+ pop.body.appendChild(activeLabel);
+
+ if (isEdit && source.locked && source.lock_reason) {
+ pop.body.appendChild(element("div", "catalog-lock-note", "Protegida · " + source.lock_reason));
+ }
+
+ pop.body.appendChild(element("div", "popover-help", "Desactivar conserva los datos históricos; solamente deja de ofrecer la opción hacia adelante."));
+
+ popoverActions(pop, async function() {
+ const payload = {
+ nombre: name.value.trim(),
+ notas: notes.value.trim(),
+ activo: active.checked
+ };
+ if (!payload.nombre) throw new Error("Capture un nombre para la opción.");
+ if (isEdit) {
+ await api("/api/catalogs/" + encodeURIComponent(source.option_id), {
+ method: "PATCH",
+ body: JSON.stringify({option: payload})
+ });
+ } else {
+ await api("/api/catalogs", {
+ method: "POST",
+ body: JSON.stringify({catalogo: catalog.key, option: payload})
+ });
+ }
+ state.catalogsAdmin = null;
+ await loadCatalogsAdmin(true);
+ refreshCatalogsScreenFromState();
+ }, isEdit ? "Guardar cambios" : "Crear opción");
+ }
+
+ async function toggleCatalogOption(catalog, option) {
+ if (!catalog || !option || !option.can_toggle) return;
+ const next = !option.activo;
+ const before = option.activo;
+ option.activo = next;
+ refreshCatalogsScreenFromState();
+ try {
+ await api("/api/catalogs/" + encodeURIComponent(option.option_id), {
+ method: "PATCH",
+ body: JSON.stringify({option: {activo: next}})
+ });
+ state.catalogsAdmin = null;
+ await loadCatalogsAdmin(true);
+ refreshCatalogsScreenFromState();
+ } catch (error) {
+ option.activo = before;
+ refreshCatalogsScreenFromState();
+ showError(error.message || "No se pudo actualizar la opción.");
+ }
+ }
+
+ async function moveCatalogOption(catalog, optionId, delta) {
+ if (!catalog || !catalog.editable) return;
+ const all = Array.isArray(catalog.options) ? catalog.options.slice() : [];
+ const index = all.findIndex(function(o) { return o.option_id === optionId; });
+ const target = index + delta;
+ if (index < 0 || target < 0 || target >= all.length) return;
+ const temp = all[index];
+ all[index] = all[target];
+ all[target] = temp;
+ catalog.options = all;
+ refreshCatalogsScreenFromState();
+ try {
+ await api("/api/catalogs/reorder", {
+ method: "POST",
+ body: JSON.stringify({catalogo: catalog.key, option_ids: all.map(function(o) { return o.option_id; })})
+ });
+ state.catalogsAdmin = null;
+ await loadCatalogsAdmin(true);
+ refreshCatalogsScreenFromState();
+ } catch (error) {
+ state.catalogsAdmin = null;
+ await loadCatalogsAdmin(true).catch(function() {});
+ refreshCatalogsScreenFromState();
+ showError(error.message || "No se pudo reordenar el catálogo.");
+ }
+ }
+
+ function catalogMetricCard(value, label, tone) {
+ const card = element("div", "catalog-metric-card" + (tone ? " " + tone : ""));
+ card.appendChild(element("strong", "", String(value)));
+ card.appendChild(element("span", "", label));
+ return card;
+ }
+
+ async function renderCatalogsAdmin(fromStateOnly) {
+ const content = clearContent();
+ if (!fromStateOnly || !state.catalogsAdmin) {
+ content.className = "loading";
+ content.textContent = "Cargando catálogos…";
+ }
+
+ try {
+ const data = await loadCatalogsAdmin(false);
+ const catalogs = Array.isArray(data.catalogs) ? data.catalogs : [];
+ const fragment = document.createDocumentFragment();
+ const page = element("div", "catalogs-page");
+
+ const toolbar = element("div", "templates-toolbar");
+ const back = element("button", "templates-back", "← Más");
+ back.type = "button";
+ back.addEventListener("click", function() { navigate("mas"); });
+ toolbar.appendChild(back);
+ const reload = element("button", "secondary-button catalog-refresh", "Actualizar");
+ reload.type = "button";
+ reload.addEventListener("click", async function() {
+ reload.disabled = true;
+ try {
+ state.catalogsAdmin = null;
+ await loadCatalogsAdmin(true);
+ refreshCatalogsScreenFromState();
+ } finally { reload.disabled = false; }
+ });
+ toolbar.appendChild(reload);
+ page.appendChild(toolbar);
+
+ page.appendChild(createHero(
+ "CONTROL CENTRAL",
+ "Catálogos",
+ "Administra las opciones que alimentan el CRM. Los valores sensibles están protegidos y los históricos nunca se borran."
+ ));
+
+ const summary = data.summary || {};
+ const metrics = element("div", "catalog-metrics");
+ metrics.appendChild(catalogMetricCard(summary.operational_catalogs || 0, "Catálogos operativos"));
+ metrics.appendChild(catalogMetricCard(summary.active_options || 0, "Opciones activas"));
+ metrics.appendChild(catalogMetricCard(summary.system_catalogs || 0, "Catálogos protegidos"));
+ metrics.appendChild(catalogMetricCard(summary.issues ? summary.issues : "✓", summary.issues ? "Requieren atención" : "Sistema consistente", summary.issues ? "warning" : "ok"));
+ page.appendChild(metrics);
+
+ const health = element("div", "catalog-health " + (summary.issues ? "warning" : "ok"));
+ health.appendChild(element("div", "catalog-health-icon", summary.issues ? "!" : "✓"));
+ const healthText = element("div", "");
+ healthText.appendChild(element("strong", "", summary.issues ? "Revisión recomendada" : "Configuración consistente"));
+ healthText.appendChild(element("span", "", summary.issues ? "Hay opciones requeridas por el sistema que faltan o están inactivas." : "Las opciones críticas para pipeline, CAPI y captura están disponibles."));
+ health.appendChild(healthText);
+ page.appendChild(health);
+
+ const groupTabs = element("div", "catalog-group-tabs");
+ [
+ {key:"operational", label:"Operativos"},
+ {key:"system", label:"Sistema"},
+ {key:"legacy", label:"Históricos"}
+ ].forEach(function(group) {
+ const button = element("button", "catalog-group-tab" + (state.catalogsGroup === group.key ? " active" : ""), group.label);
+ button.type = "button";
+ button.addEventListener("click", function() {
+ state.catalogsGroup = group.key;
+ const first = catalogs.find(function(c) { return c.group === group.key; });
+ state.catalogsSelectedKey = first ? first.key : "";
+ state.catalogsOptionSearch = "";
+ state.catalogsOptionStatus = "all";
+ refreshCatalogsScreenFromState();
+ });
+ groupTabs.appendChild(button);
+ });
+ page.appendChild(groupTabs);
+ page.appendChild(element("div", "catalog-group-caption", catalogGroupDescription(state.catalogsGroup)));
+
+ const workspace = element("div", "catalog-workspace");
+ const nav = element("aside", "catalog-nav-panel");
+ const catalogSearch = element("input", "form-control catalog-search");
+ catalogSearch.type = "search";
+ catalogSearch.placeholder = "Buscar catálogo";
+ catalogSearch.value = state.catalogsSearch;
+ catalogSearch.addEventListener("input", function() {
+ state.catalogsSearch = catalogSearch.value;
+ refreshCatalogsScreenFromState();
+ });
+ nav.appendChild(catalogSearch);
+
+ const navList = element("div", "catalog-nav-list");
+ const searchCatalog = normalized(state.catalogsSearch || "");
+ const groupCatalogs = catalogs.filter(function(c) {
+ if (c.group !== state.catalogsGroup) return false;
+ if (!searchCatalog) return true;
+ return normalized([c.title, c.description, c.where_used].join(" ")).includes(searchCatalog);
+ });
+
+ if (!groupCatalogs.length) {
+ navList.appendChild(element("div", "catalog-empty-mini", "No hay catálogos con esa búsqueda."));
+ } else {
+ groupCatalogs.forEach(function(catalog) {
+ const button = element("button", "catalog-nav-item" + (catalog.key === state.catalogsSelectedKey ? " active" : ""));
+ button.type = "button";
+ const top = element("div", "catalog-nav-title-row");
+ top.appendChild(element("strong", "", catalog.title));
+ const badge = element("span", "catalog-nav-count", String(catalog.active_count || 0));
+ top.appendChild(badge);
+ button.appendChild(top);
+ button.appendChild(element("div", "catalog-nav-use", catalog.where_used || ""));
+ const meta = element("div", "catalog-nav-meta");
+ meta.appendChild(element("span", catalog.editable ? "editable" : "protected", catalog.editable ? "Editable" : "Protegido"));
+ if (catalog.inactive_count) meta.appendChild(element("span", "", String(catalog.inactive_count) + " inactivas"));
+ button.appendChild(meta);
+ button.addEventListener("click", function() {
+ state.catalogsSelectedKey = catalog.key;
+ state.catalogsOptionSearch = "";
+ state.catalogsOptionStatus = "all";
+ refreshCatalogsScreenFromState();
+ });
+ navList.appendChild(button);
+ });
+ }
+ nav.appendChild(navList);
+ workspace.appendChild(nav);
+
+ const detail = element("section", "catalog-detail-panel");
+ const selected = getSelectedCatalogAdmin(data);
+ if (!selected || selected.group !== state.catalogsGroup) {
+ detail.appendChild(element("div", "empty-state", "Selecciona un catálogo."));
+ } else {
+ const detailHead = element("div", "catalog-detail-head");
+ const detailTitle = element("div", "");
+ const titleLine = element("div", "catalog-title-line");
+ titleLine.appendChild(element("h2", "catalog-detail-title", selected.title));
+ titleLine.appendChild(element("span", "catalog-group-badge " + selected.group, catalogGroupLabel(selected.group)));
+ detailTitle.appendChild(titleLine);
+ detailTitle.appendChild(element("p", "catalog-detail-description", selected.description));
+ const context = element("div", "catalog-context-line");
+ context.appendChild(element("span", "", "Se usa en: " + (selected.where_used || "CRM")));
+ if (selected.usage_supported) context.appendChild(element("span", "", String(selected.usage_total || 0) + " leads actuales"));
+ detailTitle.appendChild(context);
+ detailHead.appendChild(detailTitle);
+ if (data.can_edit && selected.can_create) {
+ const add = element("button", "save-button", "+ Nueva opción");
+ add.type = "button";
+ add.addEventListener("click", function() { openCatalogOptionEditor(selected, null); });
+ detailHead.appendChild(add);
+ }
+ detail.appendChild(detailHead);
+
+ const utility = element("div", "catalog-option-toolbar");
+ const optionSearch = element("input", "form-control");
+ optionSearch.type = "search";
+ optionSearch.placeholder = "Buscar opción";
+ optionSearch.value = state.catalogsOptionSearch;
+ optionSearch.addEventListener("input", function() {
+ state.catalogsOptionSearch = optionSearch.value;
+ refreshCatalogsScreenFromState();
+ });
+ const status = element("select", "form-control");
+ [
+ {value:"all", label:"Todas"},
+ {value:"active", label:"Activas"},
+ {value:"inactive", label:"Inactivas"}
+ ].forEach(function(item) {
+ const o = element("option", "", item.label);
+ o.value = item.value;
+ status.appendChild(o);
+ });
+ status.value = state.catalogsOptionStatus;
+ status.addEventListener("change", function() {
+ state.catalogsOptionStatus = status.value;
+ refreshCatalogsScreenFromState();
+ });
+ utility.append(optionSearch, status);
+ detail.appendChild(utility);
+
+ const list = element("div", "catalog-option-list");
+ const rows = catalogVisibleOptions(selected);
+ if (!rows.length) {
+ list.appendChild(element("div", "empty-state", "No hay opciones con estos filtros."));
+ } else {
+ rows.forEach(function(option) {
+ const row = element("div", "catalog-option-row" + (option.activo ? "" : " inactive") + (option.locked ? " locked" : ""));
+ const order = element("div", "catalog-option-order", String(Math.round(Number(option.orden || 0) / 10) || "·"));
+ row.appendChild(order);
+ const main = element("div", "catalog-option-main");
+ const nameLine = element("div", "catalog-option-name-line");
+ nameLine.appendChild(element("strong", "catalog-option-name", option.nombre || "Sin nombre"));
+ if (option.locked) nameLine.appendChild(element("span", "catalog-mini-badge protected", "Protegida"));
+ if (!option.activo) nameLine.appendChild(element("span", "catalog-mini-badge inactive", "Inactiva"));
+ nameLine.appendChild(element("span", "catalog-mini-badge code", option.codigo_sistema || "SIN_CODIGO"));
+ main.appendChild(nameLine);
+ if (option.notas) main.appendChild(element("div", "catalog-option-note", option.notas));
+ const usageLine = element("div", "catalog-option-usage");
+ if (option.usage_supported) usageLine.appendChild(element("span", "", Number(option.usage_count || 0) === 1 ? "Usada por 1 lead" : "Usada por " + String(option.usage_count || 0) + " leads"));
+ else usageLine.appendChild(element("span", "", selected.group === "legacy" ? "Solo histórico" : "Sin conteo de uso directo"));
+ if (option.lock_reason) usageLine.appendChild(element("span", "", option.lock_reason));
+ main.appendChild(usageLine);
+ row.appendChild(main);
+
+ const actions = element("div", "catalog-option-actions");
+ if (data.can_edit && option.can_reorder && selected.options.length > 1 && !state.catalogsOptionSearch && state.catalogsOptionStatus === "all") {
+ const up = element("button", "catalog-icon-button", "↑");
+ up.type = "button";
+ up.title = "Subir";
+ up.disabled = selected.options.findIndex(function(o) { return o.option_id === option.option_id; }) === 0;
+ up.addEventListener("click", function() { moveCatalogOption(selected, option.option_id, -1); });
+ const down = element("button", "catalog-icon-button", "↓");
+ down.type = "button";
+ down.title = "Bajar";
+ down.disabled = selected.options.findIndex(function(o) { return o.option_id === option.option_id; }) === selected.options.length - 1;
+ down.addEventListener("click", function() { moveCatalogOption(selected, option.option_id, 1); });
+ actions.append(up, down);
+ }
+ if (data.can_edit && option.can_toggle) {
+ const toggle = element("button", "catalog-toggle " + (option.activo ? "on" : "off"), option.activo ? "Activo" : "Inactivo");
+ toggle.type = "button";
+ toggle.setAttribute("aria-pressed", option.activo ? "true" : "false");
+ toggle.title = option.activo ? "Desactivar opción" : "Activar opción";
+ toggle.addEventListener("click", function() { toggleCatalogOption(selected, option); });
+ actions.appendChild(toggle);
+ }
+ if (data.can_edit && (option.can_rename || option.can_edit_notes)) {
+ const edit = element("button", "secondary-button catalog-edit-button", "Editar");
+ edit.type = "button";
+ edit.addEventListener("click", function() { openCatalogOptionEditor(selected, option); });
+ actions.appendChild(edit);
+ }
+ row.appendChild(actions);
+ list.appendChild(row);
+ });
+ }
+ detail.appendChild(list);
+
+ const foot = element("div", "catalog-foot-note");
+ foot.appendChild(element("strong", "", "Regla de seguridad: "));
+ foot.appendChild(document.createTextNode(selected.editable ? "desactivar nunca elimina datos históricos. Los códigos internos permanecen estables aunque cambie el nombre visible." : "este catálogo es de solo lectura porque participa en reglas del sistema."));
+ detail.appendChild(foot);
+ }
+ workspace.appendChild(detail);
+ page.appendChild(workspace);
+ fragment.appendChild(page);
+ content.className = "";
+ content.replaceChildren(fragment);
+ } catch (error) {
+ content.className = "";
+ content.replaceChildren(element("div", "empty-state", "No se pudieron cargar los catálogos."));
+ showError(error.message);
+ reportClientError(error, {accion: "catalogs.list", endpoint: "/api/catalogs"});
  }
  }
 
