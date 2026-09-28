@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.12.2-first-name-render-fix
+ * Version: 0.12.3-followup-default-tomorrow-9am
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.12.2-first-name-render-fix";
+const APP_VERSION = "0.12.3-followup-default-tomorrow-9am";
 
 
 
@@ -7793,6 +7793,61 @@ function renderAppPage() {
  }
 
 
+ function monterreyTodayIso() {
+ const parts = new Intl.DateTimeFormat("en-US", {
+ timeZone: "America/Monterrey",
+ year: "numeric",
+ month: "2-digit",
+ day: "2-digit"
+ }).formatToParts(new Date());
+ let year = "";
+ let month = "";
+ let day = "";
+ parts.forEach(function(part) {
+ if (part.type === "year") year = part.value;
+ if (part.type === "month") month = part.value;
+ if (part.type === "day") day = part.value;
+ });
+ return year && month && day ? year + "-" + month + "-" + day : "";
+ }
+
+
+ function addCalendarDaysIso(isoDate, days) {
+ const pieces = String(isoDate || "").split("-");
+ if (pieces.length !== 3) return "";
+ const year = Number(pieces[0]);
+ const month = Number(pieces[1]);
+ const day = Number(pieces[2]);
+ if (!year || !month || !day) return "";
+ const date = new Date(Date.UTC(year, month - 1, day + Number(days || 0), 12, 0, 0));
+ return String(date.getUTCFullYear()).padStart(4, "0") + "-" +
+ String(date.getUTCMonth() + 1).padStart(2, "0") + "-" +
+ String(date.getUTCDate()).padStart(2, "0");
+ }
+
+
+ function automaticFollowupDefault(existingValue) {
+ const today = monterreyTodayIso();
+ const existing = parseLeadDateParts(existingValue);
+
+ // Si ya existe un seguimiento FUTURO, se respeta.
+ // Si está vacío, vencido o es para hoy, proponemos mañana a las 09:00.
+ if (today && existing.date && existing.date > today) {
+ const futureTime = existing.time || "09:00";
+ return {
+ value: existing.date + "T" + futureTime,
+ time: futureTime
+ };
+ }
+
+ const tomorrow = addCalendarDaysIso(today, 1);
+ return {
+ value: tomorrow ? tomorrow + "T09:00" : existingValue || "",
+ time: tomorrow ? "09:00" : (existing.time || "09:00")
+ };
+ }
+
+
  function parseMxTimeInput(value) {
  const text = String(value || "").trim().toUpperCase();
  if (!text) return "";
@@ -8815,10 +8870,11 @@ function renderAppPage() {
  const stageFollowupBox = element("div", "confirm-box");
  const stageFollowupSequence = followupSequenceBox(historial, lead);
  stageFollowupBox.appendChild(stageFollowupSequence);
- const stageFollowupParts = parseLeadDateParts(lead.proximo_seguimiento);
- const stageFollowupDateControl = createMxDateControl(lead.proximo_seguimiento);
+ const stageFollowupDefault = automaticFollowupDefault(lead.proximo_seguimiento);
+ const stageFollowupParts = parseLeadDateParts(stageFollowupDefault.value);
+ const stageFollowupDateControl = createMxDateControl(stageFollowupDefault.value);
  const stageFollowupDate = stageFollowupDateControl.input;
- const stageFollowupTimeControl = createMxTimeControl(stageFollowupParts.time);
+ const stageFollowupTimeControl = createMxTimeControl(stageFollowupDefault.time || stageFollowupParts.time);
  const stageFollowupTime = stageFollowupTimeControl.input;
  wireDateTabToTime(stageFollowupDate, stageFollowupTime);
  const stageFollowupGrid = element("div", "followup-grid");
@@ -8957,10 +9013,11 @@ function renderAppPage() {
  function openFollowupPopover(lead, options, crmLeadId, fromView, historial) {
  const pop = openPopover("Programar seguimiento");
  pop.body.appendChild(followupSequenceBox(historial, lead));
- const parts = parseLeadDateParts(lead.proximo_seguimiento);
- const dateControl = createMxDateControl(lead.proximo_seguimiento);
+ const followupDefault = automaticFollowupDefault(lead.proximo_seguimiento);
+ const parts = parseLeadDateParts(followupDefault.value);
+ const dateControl = createMxDateControl(followupDefault.value);
  const date = dateControl.input;
- const timeControl = createMxTimeControl(parts.time);
+ const timeControl = createMxTimeControl(followupDefault.time || parts.time);
  const time = timeControl.input;
  wireDateTabToTime(date, time);
  const grid = element("div", "followup-grid");
