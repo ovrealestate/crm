@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.7.4-capi-live-history
+ * Version: 0.8.0-performance-bootstrap
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.7.4-capi-live-history";
+const APP_VERSION = "0.8.0-performance-bootstrap";
 
 
 
@@ -321,6 +321,27 @@ async function routeRequest(request, env) {
 
 
 
+
+
+ /**
+ * API BOOTSTRAP — carga inicial consolidada
+ */
+ if (
+ url.pathname === "/api/bootstrap" &&
+ method === "GET"
+ ) {
+ const session = await requireSession(request, env);
+ const upstream = await callAppsScript(env, session.email, {
+ action: "app.bootstrap"
+ });
+ const bootstrapData = upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
+ if (!bootstrapData || typeof bootstrapData !== "object") {
+ throw publicError(502, "El API no devolvió el arranque del CRM.");
+ }
+ return jsonResponse({ok: true, data: bootstrapData});
+ }
 
 
  /**
@@ -5433,8 +5454,12 @@ function renderAppPage() {
  lastHoyLoad: 0,
  lastLeadsLoad: 0,
  lastCampaignLoad: 0,
- capiMonitorSeq: 0
+ capiMonitorSeq: 0,
+ bootstrapLoaded: false
  };
+
+ let leadsRefreshBusy = false;
+ let campaignsRefreshBusy = false;
 
  const VIEW_TITLES = {
  hoy: "Hoy",
@@ -5981,133 +6006,138 @@ function renderAppPage() {
  }
 
 
+ function applyMeToSidebar() {
+ const user = state.me && state.me.usuario ? state.me.usuario : {};
+ document.getElementById("sidebarUser").textContent =
+ user.nombre || user.correo || "Usuario";
+ document.getElementById("sidebarRole").textContent =
+ [user.correo, user.rol].filter(Boolean).join(" · ");
+ }
+
  async function loadMe(force) {
- if (
- state.me &&
- !force
- ) {
+ if (state.me && !force) {
+ applyMeToSidebar();
+ return state.me;
+ }
+ state.me = await api("/api/me");
+ applyMeToSidebar();
  return state.me;
  }
 
- state.me =
- await api(
- "/api/me"
- );
-
- const user =
- state.me.usuario || {};
-
- document.getElementById(
- "sidebarUser"
- ).textContent =
- user.nombre ||
- user.correo ||
- "Usuario";
-
- document.getElementById(
- "sidebarRole"
- ).textContent =
- [
- user.correo,
- user.rol
- ]
- .filter(Boolean)
- .join(" · ");
-
- return state.me;
+ async function loadBootstrap() {
+ const data = await api("/api/bootstrap");
+ if (!data || typeof data !== "object") {
+ throw new Error("El servidor no devolvió el arranque del CRM.");
  }
 
+ const now = Date.now();
+ if (data.me && typeof data.me === "object") state.me = data.me;
+ if (data.hoy && typeof data.hoy === "object") {
+ state.hoy = data.hoy;
+ state.lastHoyLoad = now;
+ state.seenHoyNewLeadIds = getHoyNewLeadIds(data.hoy);
+ }
+ if (data.leads && typeof data.leads === "object" && Array.isArray(data.leads.leads)) {
+ state.leads = data.leads;
+ if (!Number.isFinite(Number(state.leads.total))) state.leads.total = state.leads.leads.length;
+ state.lastLeadsLoad = now;
+ }
+ if (data.campaigns && typeof data.campaigns === "object" && Array.isArray(data.campaigns.campaigns)) {
+ state.campaigns = data.campaigns;
+ state.lastCampaignLoad = now;
+ }
+ state.bootstrapLoaded = true;
+ applyMeToSidebar();
+ return data;
+ }
+
+ async function refreshLeadsInBackground() {
+ if (leadsRefreshBusy) return;
+ leadsRefreshBusy = true;
+ try {
+ const fresh = await api("/api/leads?limit=500");
+ if (!fresh || typeof fresh !== "object" || !Array.isArray(fresh.leads)) return;
+ if (!Number.isFinite(Number(fresh.total))) fresh.total = fresh.leads.length;
+ state.leads = fresh;
+ state.lastLeadsLoad = Date.now();
+ const route = parseRoute();
+ if (route.type === "view" && route.view === "leads") {
+ await renderLeads(false, true);
+ }
+ } catch (error) {
+ reportClientError(error, {accion: "leads.background.refresh", endpoint: "/api/leads"});
+ } finally {
+ leadsRefreshBusy = false;
+ }
+ }
+
+ async function refreshCampaignsInBackground() {
+ if (campaignsRefreshBusy) return;
+ campaignsRefreshBusy = true;
+ try {
+ const fresh = await api("/api/campaigns");
+ if (!fresh || typeof fresh !== "object" || !Array.isArray(fresh.campaigns)) return;
+ state.campaigns = fresh;
+ state.lastCampaignLoad = Date.now();
+ const route = parseRoute();
+ if (route.type === "view" && route.view === "campanas") {
+ await renderCampanas(false, true);
+ }
+ } catch (error) {
+ reportClientError(error, {accion: "campaigns.background.refresh", endpoint: "/api/campaigns"});
+ } finally {
+ campaignsRefreshBusy = false;
+ }
+ }
 
  async function loadHoy(force) {
  const now = Date.now();
- if (
- state.hoy &&
- !force &&
- state.lastHoyLoad &&
- now - state.lastHoyLoad < 30 * 1000
- ) {
+ if (state.hoy && !force) {
+ if (!state.lastHoyLoad || now - state.lastHoyLoad >= 30 * 1000) {
+ pollHoyInBackground(true);
+ }
  return state.hoy;
  }
-
- state.hoy =
- await api(
- "/api/hoy"
- );
-
+ state.hoy = await api("/api/hoy");
  if (!state.hoy || typeof state.hoy !== "object") {
  throw new Error("El servidor no devolvió una agenda válida.");
  }
-
- state.lastHoyLoad =
- Date.now();
-
+ state.lastHoyLoad = Date.now();
  return state.hoy;
  }
 
-
  async function loadLeads(force) {
  const now = Date.now();
- if (
- state.leads &&
- !force &&
- state.lastLeadsLoad &&
- now - state.lastLeadsLoad < 60 * 1000
- ) {
+ if (state.leads && !force) {
+ if (!state.lastLeadsLoad || now - state.lastLeadsLoad >= 60 * 1000) {
+ refreshLeadsInBackground();
+ }
  return state.leads;
  }
-
- state.leads =
- await api(
- "/api/leads?limit=500"
- );
-
+ state.leads = await api("/api/leads?limit=500");
  if (!state.leads || typeof state.leads !== "object" || !Array.isArray(state.leads.leads)) {
  throw new Error("El servidor no devolvió una lista de leads válida.");
  }
-
- if (!Number.isFinite(Number(state.leads.total))) {
- state.leads.total = state.leads.leads.length;
- }
-
- state.lastLeadsLoad =
- Date.now();
-
+ if (!Number.isFinite(Number(state.leads.total))) state.leads.total = state.leads.leads.length;
+ state.lastLeadsLoad = Date.now();
  return state.leads;
  }
 
-
  async function loadCampaigns(force) {
  const now = Date.now();
- if (
- state.campaigns &&
- !force &&
- state.lastCampaignLoad &&
- now - state.lastCampaignLoad < 60 * 1000
- ) {
+ if (state.campaigns && !force) {
+ if (!state.lastCampaignLoad || now - state.lastCampaignLoad >= 60 * 1000) {
+ refreshCampaignsInBackground();
+ }
  return state.campaigns;
  }
-
- state.campaigns =
- await api(
- "/api/campaigns"
- );
-
- if (
- !state.campaigns ||
- typeof state.campaigns !== "object" ||
- !Array.isArray(state.campaigns.campaigns)
- ) {
- throw new Error(
- "El servidor no devolvió métricas de campañas válidas."
- );
+ state.campaigns = await api("/api/campaigns");
+ if (!state.campaigns || typeof state.campaigns !== "object" || !Array.isArray(state.campaigns.campaigns)) {
+ throw new Error("El servidor no devolvió métricas de campañas válidas.");
  }
-
- state.lastCampaignLoad =
- Date.now();
-
+ state.lastCampaignLoad = Date.now();
  return state.campaigns;
  }
-
 
  function createHero(
  eyebrow,
@@ -6346,8 +6376,9 @@ function renderAppPage() {
 
  async function renderHoy(force, silent) {
  let content = document.getElementById("content");
+ const hadCachedData = !!state.hoy;
 
- if (!silent) {
+ if (!silent && !hadCachedData) {
  content = clearContent();
  content.className = "loading";
  content.textContent = "Cargando Hoy...";
@@ -6663,8 +6694,9 @@ function renderAppPage() {
 
  async function renderLeads(force, silent) {
  let content = document.getElementById("content");
+ const hadCachedData = !!state.leads;
 
- if (!silent) {
+ if (!silent && !hadCachedData) {
  content = clearContent();
  content.className = "loading";
  content.textContent = "Cargando leads...";
@@ -7790,7 +7822,7 @@ function renderAppPage() {
  const shouldMonitorCapi = expectedStage && hasMetaLeadId && capiStages.indexOf(expectedStage) !== -1;
  const capiSinceMs = shouldMonitorCapi ? Date.now() : 0;
 
- await api("/api/leads/" + encodeURIComponent(crmLeadId), {
+ const updateResult = await api("/api/leads/" + encodeURIComponent(crmLeadId), {
  method: "PATCH",
  headers: {"Content-Type": "application/json"},
  body: JSON.stringify({expected_version: lead.operational_version, changes})
@@ -7799,7 +7831,17 @@ function renderAppPage() {
  state.leads = null;
  state.lastHoyLoad = 0;
  state.lastLeadsLoad = 0;
- await renderLeadDetail(crmLeadId, fromView);
+
+ const returnedDetail = updateResult && updateResult.detail ? updateResult.detail : null;
+ await renderLeadDetail(crmLeadId, fromView, returnedDetail);
+
+ // Recalienta Hoy/Leads sin bloquear el guardado ni la ficha.
+ setTimeout(function() {
+ loadHoy(true).catch(function(error) {
+ reportClientError(error, {accion: "hoy.postwrite.warm", endpoint: "/api/hoy"});
+ });
+ refreshLeadsInBackground();
+ }, 250);
 
  if (shouldMonitorCapi) {
  startCapiStatusMonitor(crmLeadId, expectedStage, capiSinceMs);
@@ -8145,12 +8187,13 @@ function renderAppPage() {
  popoverActions(pop, async function() {
  const nota = textarea.value.trim();
  if (!nota) throw new Error("Escriba una nota.");
- await api("/api/leads/" + encodeURIComponent(crmLeadId) + "/notes", {
+ const result = await api("/api/leads/" + encodeURIComponent(crmLeadId) + "/notes", {
  method: "POST",
  headers: {"Content-Type": "application/json"},
  body: JSON.stringify({nota})
  });
- await renderLeadDetail(crmLeadId, fromView);
+ const returnedDetail = result && result.detail ? result.detail : null;
+ await renderLeadDetail(crmLeadId, fromView, returnedDetail);
  }, "Agregar");
  setTimeout(() => textarea.focus(), 20);
  }
@@ -8369,22 +8412,22 @@ function renderAppPage() {
 
  async function renderLeadDetail(
  crmLeadId,
- fromView
+ fromView,
+ prefetchedData
  ) {
  const content =
  clearContent();
 
- content.className =
- "loading";
-
- content.textContent =
- "Cargando lead...";
+ if (!prefetchedData) {
+ content.className = "loading";
+ content.textContent = "Cargando lead...";
+ }
 
  state.loadingDetailId =
  crmLeadId;
 
  try {
- const data =
+ const data = prefetchedData ||
  await api(
  "/api/leads/" +
  encodeURIComponent(
@@ -9915,34 +9958,30 @@ function renderAppPage() {
 
  async function boot() {
  try {
- await loadMe(false);
-
  if (!location.hash) {
- history.replaceState(
- null,
- "",
- "#hoy"
- );
+ history.replaceState(null, "", "#hoy");
  }
 
+ try {
+ await loadBootstrap();
+ } catch (bootstrapError) {
+ // Fallback conservador: si el endpoint consolidado falla, la App sigue
+ // pudiendo iniciar con las rutas anteriores.
+ reportClientError(bootstrapError, {accion: "app.bootstrap", endpoint: "/api/bootstrap"});
+ await loadMe(false);
+ }
+
+ await loadMe(false);
  await handleRoute();
- prefetchSecondaryViews();
+
+ // Campañas no bloquea el arranque; la calentamos apenas Hoy ya quedó visible.
+ if (!state.campaigns) refreshCampaignsInBackground();
+ if (!state.leads) prefetchSecondaryViews();
 
  } catch (error) {
- showError(
- error.message
- );
-
- const content =
- clearContent();
-
- content.appendChild(
- element(
- "div",
- "empty-state",
- "No se pudo iniciar el CRM."
- )
- );
+ showError(error.message);
+ const content = clearContent();
+ content.appendChild(element("div", "empty-state", "No se pudo iniciar el CRM."));
  }
  }
 
