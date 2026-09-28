@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.9.0-more-templates";
+const APP_VERSION = "0.10.0-whatsapp-templates";
 
 
 
@@ -815,7 +815,10 @@ async function routeRequest(request, env) {
  ),
 
  changes:
- body?.changes || {}
+ body?.changes || {},
+
+ message_context:
+ body?.message_context || null
  }
  );
 
@@ -4459,6 +4462,23 @@ function renderAppPage() {
  line-height: 1.45;
  }
 
+ .whatsapp-composer {
+ gap: 12px;
+ border-color: #d9e8df;
+ background: #f8fcf9;
+ }
+
+ .whatsapp-actions {
+ display: flex;
+ align-items: center;
+ gap: 10px;
+ flex-wrap: wrap;
+ }
+
+ .whatsapp-sent-confirm {
+ margin-top: 2px;
+ }
+
  .followup-grid {
  display: grid;
  grid-template-columns: minmax(0, 1fr) 130px;
@@ -5719,6 +5739,7 @@ function renderAppPage() {
  leads: null,
  campaigns: null,
  templatesAdmin: null,
+ messageTemplates: null,
  templatesFilterType: "",
  templatesFilterProject: "",
  templatesFilterStatus: "all",
@@ -8107,7 +8128,7 @@ function renderAppPage() {
  pop.body.append(actions, status);
  }
 
- async function saveLeadPatch(lead, crmLeadId, fromView, changes) {
+ async function saveLeadPatch(lead, crmLeadId, fromView, changes, messageContext) {
  const expectedStage = changes && changes.etapa && normalized(changes.etapa) !== normalized(lead.etapa)
  ? String(changes.etapa)
  : "";
@@ -8119,7 +8140,7 @@ function renderAppPage() {
  const updateResult = await api("/api/leads/" + encodeURIComponent(crmLeadId), {
  method: "PATCH",
  headers: {"Content-Type": "application/json"},
- body: JSON.stringify({expected_version: lead.operational_version, changes})
+ body: JSON.stringify({expected_version: lead.operational_version, changes, message_context: messageContext || null})
  });
  state.hoy = null;
  state.leads = null;
@@ -8140,6 +8161,318 @@ function renderAppPage() {
  if (shouldMonitorCapi) {
  startCapiStatusMonitor(crmLeadId, expectedStage, capiSinceMs);
  }
+ }
+
+ function firstNameForMessage(value) {
+ const text = String(value || "").trim();
+ if (!text) return "";
+ return text.split(/\s+/)[0] || text;
+ }
+
+ function compactMdpNumber(value) {
+ const number = Number(value);
+ if (!Number.isFinite(number)) return "";
+ return number.toLocaleString("es-MX", {minimumFractionDigits: number % 1 ? 1 : 0, maximumFractionDigits: 2});
+ }
+
+ function messageBudgetValue(lead) {
+ const direct = String(lead && lead.presupuesto || "").trim();
+ if (direct) return direct;
+ const min = lead && lead.presupuesto_min_mdp;
+ const max = lead && lead.presupuesto_max_mdp;
+ if (Number.isFinite(Number(min)) && Number.isFinite(Number(max))) {
+ if (Number(min) === Number(max)) return "$" + compactMdpNumber(min) + " MDP";
+ return "$" + compactMdpNumber(min) + "–" + compactMdpNumber(max) + " MDP";
+ }
+ if (Number.isFinite(Number(min))) return "Desde $" + compactMdpNumber(min) + " MDP";
+ if (Number.isFinite(Number(max))) return "Hasta $" + compactMdpNumber(max) + " MDP";
+ return "";
+ }
+
+ function messageBedroomsValue(lead) {
+ const base = String(lead && lead.recamaras || "").trim();
+ if (!base) return lead && lead.flex ? "Flex" : "";
+ if (lead && lead.flex && normalized(base).indexOf("flex") === -1) return base + " + Flex";
+ return base;
+ }
+
+ function messageTermValue(lead) {
+ const direct = String(lead && lead.plazo || "").trim();
+ if (direct) return direct;
+ const min = lead && lead.plazo_min_meses;
+ const max = lead && lead.plazo_max_meses;
+ if (Number.isFinite(Number(min)) && Number.isFinite(Number(max))) {
+ if (Number(min) === Number(max)) return String(min) + " meses";
+ return String(min) + "–" + String(max) + " meses";
+ }
+ return "";
+ }
+
+ function messageVariableMap(lead) {
+ const me = state.me || {};
+ const user = me.usuario || {};
+ return {
+ "{nombre}": firstNameForMessage(lead && lead.nombre),
+ "{proyecto}": String(lead && lead.proyecto || ""),
+ "{presupuesto}": messageBudgetValue(lead || {}),
+ "{recamaras}": messageBedroomsValue(lead || {}),
+ "{plazo}": messageTermValue(lead || {}),
+ "{forma_pago}": String(lead && (lead.forma_pago || lead.forma_pago_otro) || ""),
+ "{fecha_cita}": lead && lead.fecha_cita ? formatDateValue(lead.fecha_cita, true) : "",
+ "{inmobiliaria}": String(me.inmobiliaria || "OV Real Estate"),
+ "{asesor}": firstNameForMessage(user.nombre || user.correo || "")
+ };
+ }
+
+ function renderMessageTemplateForLead(message, lead) {
+ let text = String(message || "");
+ const values = messageVariableMap(lead || {});
+ Object.keys(values).forEach(function(token) {
+ text = text.split(token).join(values[token]);
+ });
+ return text;
+ }
+
+ function whatsappPhoneDigits(lead) {
+ let raw = String(lead && (lead.telefono_normalizado || lead.telefono || lead.telefono_original) || "").trim();
+ raw = raw.replace(/^p:/i, "");
+ let digits = raw.replace(/\D/g, "");
+ if (digits.indexOf("00") === 0) digits = digits.substring(2);
+ return digits;
+ }
+
+ function openWhatsAppMac(lead, message) {
+ const phone = whatsappPhoneDigits(lead);
+ if (!phone) throw new Error("Este lead no tiene un teléfono válido para WhatsApp.");
+ let target = "whatsapp://send?phone=" + encodeURIComponent(phone);
+ const text = String(message || "");
+ if (text) target += "&text=" + encodeURIComponent(text);
+ const link = document.createElement("a");
+ link.href = target;
+ link.style.display = "none";
+ document.body.appendChild(link);
+ link.click();
+ setTimeout(function() { link.remove(); }, 1000);
+ }
+
+ async function loadMessageTemplates() {
+ if (state.messageTemplates) return state.messageTemplates;
+ const data = await api("/api/templates");
+ state.messageTemplates = data;
+ return data;
+ }
+
+ function templateTypeForFollowup(lead, historial) {
+ const note = normalized(lead && lead.seguimiento_nota);
+ if (note.indexOf("confirmar cita") === 0) return "CONFIRMACION_CITA";
+ if (normalized(lead && lead.etapa) === "no responde") return "NO_RESPONDE";
+ const count = countScheduledFollowups(historial);
+ const ordinal = lead && lead.proximo_seguimiento ? Math.max(1, count) : count + 1;
+ if (ordinal <= 1) return "PRIMER_SEGUIMIENTO";
+ if (ordinal === 2) return "SEGUNDO_CONTACTO";
+ if (ordinal === 3) return "TERCER_CONTACTO";
+ return "CUARTO_MAS";
+ }
+
+ function templateTypeForContact(lead) {
+ return normalized(lead && lead.etapa) === "no responde" ? "RECONTACTO" : "PRIMER_CONTACTO";
+ }
+
+ function eligibleMessageTemplates(data, lead, requestedTypes) {
+ const types = Array.isArray(requestedTypes) ? requestedTypes.filter(Boolean) : [];
+ const project = normalized(lead && lead.proyecto);
+ return (data && Array.isArray(data.templates) ? data.templates : [])
+ .filter(function(template) {
+ if (!template || !template.activo) return false;
+ const scope = String(template.alcance || "GLOBAL").toUpperCase();
+ if (scope === "PROYECTO" && normalized(template.proyecto) !== project) return false;
+ return true;
+ })
+ .sort(function(a, b) {
+ const at = String(a.tipo_mensaje || "").toUpperCase();
+ const bt = String(b.tipo_mensaje || "").toUpperCase();
+ const ar = types.indexOf(at) !== -1 ? 0 : (at === "GENERAL" ? 1 : 2);
+ const br = types.indexOf(bt) !== -1 ? 0 : (bt === "GENERAL" ? 1 : 2);
+ if (ar !== br) return ar - br;
+ const ap = a.alcance === "PROYECTO" ? 0 : 1;
+ const bp = b.alcance === "PROYECTO" ? 0 : 1;
+ if (ap !== bp) return ap - bp;
+ if (!!a.predeterminada !== !!b.predeterminada) return a.predeterminada ? -1 : 1;
+ return Number(a.orden || 0) - Number(b.orden || 0);
+ });
+ }
+
+ function createWhatsAppComposer(lead, config) {
+ const opts = config || {};
+ const root = element("div", "confirm-box whatsapp-composer");
+ root.style.display = "none";
+ root.appendChild(element("div", "form-label", opts.title || "WhatsApp / Mensaje"));
+
+ const mode = element("select", "form-control");
+ [["TEMPLATE", "Usar plantilla"], ["CUSTOM", "Mensaje personalizado"]].forEach(function(item) {
+ const option = element("option", "", item[1]);
+ option.value = item[0];
+ mode.appendChild(option);
+ });
+ root.appendChild(popoverField("Cómo quieres preparar el mensaje", mode));
+
+ const templateSelect = element("select", "form-control");
+ const templateField = popoverField("Plantilla", templateSelect);
+ root.appendChild(templateField);
+
+ const message = element("textarea", "form-control form-textarea");
+ message.placeholder = "Puedes editar el texto aquí. Si prefieres escribir directamente en WhatsApp, déjalo en blanco.";
+ const messageField = popoverField("Mensaje", message);
+ root.appendChild(messageField);
+
+ const helper = element("div", "popover-help", "La plantilla solo prepara el texto. Puedes modificarlo antes de abrir WhatsApp.");
+ root.appendChild(helper);
+
+ const row = element("div", "whatsapp-actions");
+ const open = element("button", "secondary-button", "Abrir WhatsApp");
+ open.type = "button";
+ const status = element("div", "save-status");
+ row.append(open);
+ root.append(row, status);
+
+ const sentLabel = element("label", "confirm-line whatsapp-sent-confirm");
+ const sent = element("input");
+ sent.type = "checkbox";
+ sentLabel.append(sent, document.createTextNode(" Confirmo que envié el mensaje"));
+ root.appendChild(sentLabel);
+
+ let data = null;
+ let loaded = false;
+ let loading = null;
+ let currentTypes = Array.isArray(opts.types) ? opts.types.slice() : [];
+
+ function selectedTemplate() {
+ if (!data) return null;
+ const id = String(templateSelect.value || "");
+ return (data.templates || []).find(function(item) { return item.template_id === id; }) || null;
+ }
+
+ function fillFromSelectedTemplate() {
+ const template = selectedTemplate();
+ if (!template) return;
+ message.value = renderMessageTemplateForLead(template.mensaje, lead);
+ }
+
+ function rebuildTemplateSelect() {
+ const list = eligibleMessageTemplates(data, lead, currentTypes);
+ templateSelect.replaceChildren();
+ const blank = element("option", "", list.length ? "Seleccione una plantilla" : "No hay plantillas para este contexto");
+ blank.value = "";
+ templateSelect.appendChild(blank);
+ list.forEach(function(template) {
+ const typeInfo = (data.tipos || []).find(function(item) { return item.codigo === template.tipo_mensaje; });
+ const typeLabel = typeInfo ? typeInfo.nombre : template.tipo_mensaje;
+ const label = template.nombre + " · " + typeLabel + (template.alcance === "PROYECTO" ? " · " + template.proyecto : " · Global");
+ const option = element("option", "", label);
+ option.value = template.template_id;
+ templateSelect.appendChild(option);
+ });
+ const preferred = list.find(function(item) {
+ return item.predeterminada && currentTypes.indexOf(String(item.tipo_mensaje || "").toUpperCase()) !== -1;
+ }) || list.find(function(item) {
+ return currentTypes.indexOf(String(item.tipo_mensaje || "").toUpperCase()) !== -1;
+ }) || list.find(function(item) { return item.predeterminada; }) || list[0];
+ if (preferred) {
+ templateSelect.value = preferred.template_id;
+ fillFromSelectedTemplate();
+ } else {
+ mode.value = "CUSTOM";
+ message.value = "";
+ syncMode();
+ }
+ }
+
+ async function ensureLoaded() {
+ if (loaded) return data;
+ if (loading) return loading;
+ status.className = "save-status";
+ status.textContent = "Cargando plantillas…";
+ loading = loadMessageTemplates().then(function(result) {
+ data = result || {templates: []};
+ loaded = true;
+ rebuildTemplateSelect();
+ status.textContent = "";
+ return data;
+ }).catch(function(error) {
+ status.className = "save-status error";
+ status.textContent = error.message || "No se pudieron cargar las plantillas.";
+ throw error;
+ }).finally(function() { loading = null; });
+ return loading;
+ }
+
+ function syncMode() {
+ const usingTemplate = mode.value === "TEMPLATE";
+ templateField.style.display = usingTemplate ? "grid" : "none";
+ if (!usingTemplate && opts.clearCustomOnSwitch !== false) message.value = "";
+ helper.textContent = usingTemplate
+ ? "Puedes editar el texto generado sin modificar la plantilla original."
+ : "Escribe aquí algo personal o deja el campo en blanco para redactarlo directamente en WhatsApp.";
+ }
+
+ mode.addEventListener("change", function() {
+ syncMode();
+ if (mode.value === "TEMPLATE") ensureLoaded().catch(function() {});
+ });
+ templateSelect.addEventListener("change", fillFromSelectedTemplate);
+
+ open.addEventListener("click", async function() {
+ status.className = "save-status";
+ status.textContent = "";
+ try {
+ if (mode.value === "TEMPLATE") {
+ await ensureLoaded();
+ if (!templateSelect.value) throw new Error("Seleccione una plantilla o cambie a Mensaje personalizado.");
+ }
+ openWhatsAppMac(lead, message.value);
+ status.textContent = "WhatsApp abierto. Regresa al CRM después de enviar y confirma el envío.";
+ } catch (error) {
+ status.className = "save-status error";
+ status.textContent = error.message || "No se pudo abrir WhatsApp.";
+ }
+ });
+
+ syncMode();
+
+ return {
+ root: root,
+ show: function(show, types) {
+ if (Array.isArray(types)) currentTypes = types.slice();
+ root.style.display = show ? "grid" : "none";
+ if (show && mode.value === "TEMPLATE") ensureLoaded().then(rebuildTemplateSelect).catch(function() {});
+ if (!show) sent.checked = false;
+ },
+ ensureLoaded: ensureLoaded,
+ validateSent: function() {
+ if (mode.value === "TEMPLATE" && !templateSelect.value) {
+ throw new Error("Seleccione una plantilla o cambie a Mensaje personalizado.");
+ }
+ if (!sent.checked) throw new Error("Confirme que envió el mensaje por WhatsApp antes de guardar Contactado.");
+ },
+ messageContext: function() {
+ if (!sent.checked) return null;
+ const template = mode.value === "TEMPLATE" ? selectedTemplate() : null;
+ const templateId = mode.value === "TEMPLATE" ? String(templateSelect.value || "") : "";
+ return {
+ confirmed_sent: true,
+ channel: "WHATSAPP",
+ mode: mode.value === "TEMPLATE" ? "TEMPLATE" : "CUSTOM",
+ template_id: templateId,
+ template_version: template ? Number(template.version || 1) : "",
+ template_name: template ? template.nombre : "",
+ message: String(message.value || "")
+ };
+ },
+ sent: sent,
+ mode: mode,
+ message: message,
+ templateSelect: templateSelect
+ };
  }
 
  function makeDiscardControls(lead, options) {
@@ -8175,6 +8508,20 @@ function renderAppPage() {
  const select = element("select", "form-control");
  fillSelectOptions(select, options.etapas, lead.etapa, false, "");
  pop.body.appendChild(popoverField("Etapa", select));
+
+ const contactBox = element("div", "confirm-box");
+ const contactChannel = element("select", "form-control");
+ [["", "Seleccione cómo se realizó el contacto"], ["WhatsApp / Mensaje", "WhatsApp / Mensaje"], ["Llamada", "Llamada"]].forEach(function(item) {
+ const option = element("option", "", item[1]);
+ option.value = item[0];
+ contactChannel.appendChild(option);
+ });
+ contactBox.appendChild(popoverField("Cómo se realizó el contacto", contactChannel));
+ contactBox.appendChild(element("div", "popover-help", "Si fue WhatsApp / Mensaje, podrás usar una plantilla o escribir algo personal antes de guardar Contactado."));
+ contactBox.style.display = "none";
+ pop.body.appendChild(contactBox);
+ const contactComposer = createWhatsAppComposer(lead, {title: "Mensaje de contacto"});
+ pop.body.appendChild(contactComposer.root);
 
  const discard = makeDiscardControls(lead, options);
  pop.body.appendChild(discard.box);
@@ -8259,10 +8606,20 @@ function renderAppPage() {
  valueField.style.display = "none";
  pop.body.appendChild(valueField);
 
+ const syncContactChannel = function() {
+ const isContactado = normalized(select.value) === "contactado";
+ const isWhatsApp = normalized(contactChannel.value).indexOf("whatsapp") !== -1;
+ contactComposer.show(isContactado && isWhatsApp, [templateTypeForContact(lead)]);
+ };
+ contactChannel.addEventListener("change", syncContactChannel);
+
  const sync = function() {
  const stage = normalized(select.value);
  const needsGenericFollowup = stage !== "no responde" && stage !== "descartado" && stage !== "cita agendada";
  discard.sync(stage === "descartado");
+ contactBox.style.display = stage === "contactado" ? "grid" : "none";
+ if (stage !== "contactado") contactChannel.value = "";
+ syncContactChannel();
  aptField.style.display = stage === "cita agendada" ? "grid" : "none";
  confirmBox.style.display = stage === "cita agendada" ? "grid" : "none";
  stageFollowupBox.style.display = needsGenericFollowup ? "grid" : "none";
@@ -8274,6 +8631,14 @@ function renderAppPage() {
  popoverActions(pop, async function() {
  const changes = {etapa: select.value};
  const stage = normalized(select.value);
+ let messageContext = null;
+ if (stage === "contactado") {
+ if (!contactChannel.value) throw new Error("Seleccione si el contacto se realizó por WhatsApp / Mensaje o Llamada.");
+ if (normalized(contactChannel.value).indexOf("whatsapp") !== -1) {
+ contactComposer.validateSent();
+ messageContext = contactComposer.messageContext();
+ }
+ }
  if (stage === "descartado") {
  if (!discard.select.value) throw new Error("Seleccione un motivo de descarte.");
  changes.motivo_descarte = discard.select.value;
@@ -8332,7 +8697,7 @@ function renderAppPage() {
  if (!(Number(valueInput.value) > 0)) throw new Error("Capture el valor de operación.");
  changes.valor_operacion = Number(valueInput.value);
  }
- await saveLeadPatch(lead, crmLeadId, fromView, changes);
+ await saveLeadPatch(lead, crmLeadId, fromView, changes, messageContext);
  });
  }
 
@@ -8388,6 +8753,9 @@ function renderAppPage() {
  note.value = lead.seguimiento_nota || "";
  pop.body.appendChild(popoverField("Nota / antecedente", note));
 
+ const followupComposer = createWhatsAppComposer(lead, {title: "Mensaje para este seguimiento"});
+ pop.body.appendChild(followupComposer.root);
+
  const stageBox = element("div", "stage-link-box");
  const stageText = element("div", "", "");
  const stageLabel = element("label", "confirm-line");
@@ -8409,6 +8777,8 @@ function renderAppPage() {
  const syncStage = function() {
  const selected = activity.options[activity.selectedIndex];
  const linked = selected ? String(selected.dataset.etapa || "") : "";
+ const isWhatsApp = normalized(activity.value).indexOf("whatsapp") !== -1;
+ followupComposer.show(isWhatsApp, [templateTypeForFollowup(lead, historial)]);
  stageBox.classList.toggle("visible", !!linked);
  stageText.textContent = linked ? "Esta actividad corresponde a la etapa “" + linked + "”. ¿Quiere cambiar también la etapa del lead?" : "";
  if (!linked) stageCheck.checked = false;
@@ -8455,7 +8825,10 @@ function renderAppPage() {
  }
  }
 
- await saveLeadPatch(lead, crmLeadId, fromView, changes);
+ const messageContext = normalized(activity.value).indexOf("whatsapp") !== -1
+ ? followupComposer.messageContext()
+ : null;
+ await saveLeadPatch(lead, crmLeadId, fromView, changes, messageContext);
  }, "Programar");
  }
 
@@ -10308,6 +10681,7 @@ function renderAppPage() {
  });
  }
  state.templatesAdmin = null;
+ state.messageTemplates = null;
  await loadTemplatesAdmin(true);
  refreshTemplatesScreenFromState();
  }, isEdit ? "Guardar cambios" : "Crear plantilla");
