@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.12.7-no-response-followup-note
+ * Version: 0.12.8-leads-compact-summary
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.12.7-no-response-followup-note";
+const APP_VERSION = "0.12.8-leads-compact-summary";
 
 
 
@@ -3856,6 +3856,44 @@ function renderAppPage() {
  color: #222;
  }
 
+ .leads-options-row {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ gap: 12px;
+ margin: -4px 0 14px;
+ flex-wrap: wrap;
+ }
+
+ .leads-hide-discarded {
+ display: inline-flex;
+ align-items: center;
+ gap: 9px;
+ min-height: 36px;
+ padding: 0 12px;
+ border: 1px solid var(--line);
+ border-radius: 999px;
+ background: #fff;
+ color: #444;
+ font-size: 12px;
+ font-weight: 700;
+ cursor: pointer;
+ user-select: none;
+ }
+
+ .leads-hide-discarded input {
+ width: 16px;
+ height: 16px;
+ margin: 0;
+ accent-color: #111;
+ }
+
+ .leads-hidden-count {
+ color: var(--muted);
+ font-size: 12px;
+ font-weight: 600;
+ }
+
  .section {
  margin-top: 26px;
  scroll-margin-top: 220px;
@@ -3942,6 +3980,41 @@ function renderAppPage() {
  color: var(--muted);
  font-size: 13px;
  line-height: 1.4;
+ }
+
+ .lead-ops {
+ display: grid;
+ gap: 3px;
+ margin-top: 8px;
+ min-width: 0;
+ }
+
+ .lead-ops-line {
+ display: flex;
+ align-items: baseline;
+ gap: 7px;
+ min-width: 0;
+ color: #5f5f5b;
+ font-size: 12px;
+ line-height: 1.35;
+ }
+
+ .lead-ops-label {
+ flex: 0 0 auto;
+ color: #777772;
+ font-weight: 760;
+ }
+
+ .lead-ops-text {
+ min-width: 0;
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+ }
+
+ .lead-ops-line.next .lead-ops-text {
+ color: #333;
+ font-weight: 650;
  }
 
  .lead-right {
@@ -5778,6 +5851,7 @@ function renderAppPage() {
  leadsSearch: "",
  leadsStage: "",
  leadsProject: "",
+ leadsHideDiscarded: true,
  loadingDetailId: "",
  lastHoyLoad: 0,
  lastLeadsLoad: 0,
@@ -6671,6 +6745,58 @@ function renderAppPage() {
  }
 
 
+ function shortOperationalDateTime(value) {
+ let formatted = formatDateValue(value, true);
+ if (!formatted) return '';
+ formatted = String(formatted).replace(', ', ' · ');
+ const slashParts = formatted.split(' · ');
+ const datePart = slashParts[0] || '';
+ const datePieces = datePart.split('/');
+ const shortDate = datePieces.length === 3
+ ? datePieces[0] + '/' + datePieces[1]
+ : datePart;
+ return slashParts[1] ? shortDate + ' · ' + slashParts[1] : shortDate;
+ }
+
+
+ function compactSnippet(value, maxLength) {
+ const text = String(value || '')
+ .replaceAll(String.fromCharCode(10), ' ')
+ .replaceAll(String.fromCharCode(13), ' ')
+ .replaceAll(String.fromCharCode(9), ' ')
+ .split(' ')
+ .filter(Boolean)
+ .join(' ')
+ .trim();
+ const limit = Number(maxLength || 92);
+ if (!text || text.length <= limit) return text;
+ return text.substring(0, Math.max(1, limit - 1)).trimEnd() + '…';
+ }
+
+
+ function leadNextSummary(lead) {
+ if (lead.proximo_seguimiento) {
+ const when = shortOperationalDateTime(lead.proximo_seguimiento);
+ const activity = String(lead.seguimiento_actividad || '').trim();
+ return [when, activity].filter(Boolean).join(' · ');
+ }
+ if (lead.fecha_cita) {
+ const when = shortOperationalDateTime(lead.fecha_cita);
+ return when ? 'Cita · ' + when : '';
+ }
+ return 'Sin seguimiento';
+ }
+
+
+ function leadLastSummary(lead) {
+ const tipo = String(lead.ultimo_resumen_tipo || '').trim();
+ let text = String(lead.ultimo_resumen_texto || '').trim();
+ if (!text) text = String(lead.notas_legacy || '').trim();
+ if (!text) return '';
+ return (tipo ? tipo + ' · ' : '') + compactSnippet(text, 110);
+ }
+
+
  function createLeadCard(
  lead,
  accent,
@@ -6724,6 +6850,25 @@ function renderAppPage() {
  .join(" · ")
  )
  );
+
+ const ops = element("div", "lead-ops");
+ const nextLine = element("div", "lead-ops-line next");
+ nextLine.append(
+ element("span", "lead-ops-label", "Próx."),
+ element("span", "lead-ops-text", leadNextSummary(lead))
+ );
+ ops.appendChild(nextLine);
+
+ const lastSummary = leadLastSummary(lead);
+ if (lastSummary) {
+ const lastLine = element("div", "lead-ops-line");
+ lastLine.append(
+ element("span", "lead-ops-label", "Último"),
+ element("span", "lead-ops-text", lastSummary)
+ );
+ ops.appendChild(lastLine);
+ }
+ left.appendChild(ops);
 
  const right =
  element(
@@ -7166,14 +7311,22 @@ function renderAppPage() {
  content.className = "";
  content.replaceChildren();
 
- content.appendChild(
- createHero(
+ const discardedTotal = list.leads.filter(function(lead) {
+ return String(lead.etapa || "").trim() === "Descartado";
+ }).length;
+ const visibleBaseTotal = state.leadsHideDiscarded
+ ? Math.max(0, list.leads.length - discardedTotal)
+ : list.leads.length;
+
+ const leadsHero = createHero(
  "Base comercial",
  "Leads",
- list.total +
- " leads"
- )
+ state.leadsHideDiscarded
+ ? visibleBaseTotal + " leads activos" + (discardedTotal ? " · " + discardedTotal + " descartados ocultos" : "")
+ : list.leads.length + " leads"
  );
+ const leadsHeroSubtitle = leadsHero.querySelector(".page-subtitle");
+ content.appendChild(leadsHero);
 
  const toolbar =
  element(
@@ -7227,6 +7380,23 @@ function renderAppPage() {
  content.appendChild(
  toolbar
  );
+
+ const optionsRow = element("div", "leads-options-row");
+ const hideDiscardedLabel = element("label", "leads-hide-discarded");
+ const hideDiscardedCheck = document.createElement("input");
+ hideDiscardedCheck.type = "checkbox";
+ hideDiscardedCheck.checked = !!state.leadsHideDiscarded;
+ const hideDiscardedText = document.createTextNode(" No mostrar descartados");
+ hideDiscardedLabel.append(hideDiscardedCheck, hideDiscardedText);
+ const hiddenCountText = element(
+ "div",
+ "leads-hidden-count",
+ discardedTotal
+ ? discardedTotal + (discardedTotal === 1 ? " descartado" : " descartados")
+ : "Sin descartados"
+ );
+ optionsRow.append(hideDiscardedLabel, hiddenCountText);
+ content.appendChild(optionsRow);
 
  const stages =
  Array.from(
@@ -7416,6 +7586,12 @@ function renderAppPage() {
  state.leadsProject =
  projectSelect.value;
 
+ if (leadsHeroSubtitle) {
+ leadsHeroSubtitle.textContent = state.leadsHideDiscarded
+ ? visibleBaseTotal + " leads activos" + (discardedTotal ? " · " + discardedTotal + " descartados ocultos" : "")
+ : list.leads.length + " leads";
+ }
+
  drawProjectChips();
 
  const query =
@@ -7430,6 +7606,13 @@ function renderAppPage() {
  state.leadsStage &&
  lead.etapa !==
  state.leadsStage
+ ) {
+ return false;
+ }
+
+ if (
+ state.leadsHideDiscarded &&
+ String(lead.etapa || "").trim() === "Descartado"
  ) {
  return false;
  }
@@ -7505,7 +7688,25 @@ function renderAppPage() {
 
  stageSelect.addEventListener(
  "change",
- draw
+ function() {
+ if (stageSelect.value === "Descartado" && hideDiscardedCheck.checked) {
+ hideDiscardedCheck.checked = false;
+ state.leadsHideDiscarded = false;
+ }
+ draw();
+ }
+ );
+
+ hideDiscardedCheck.addEventListener(
+ "change",
+ function() {
+ state.leadsHideDiscarded = !!hideDiscardedCheck.checked;
+ if (state.leadsHideDiscarded && stageSelect.value === "Descartado") {
+ stageSelect.value = "";
+ state.leadsStage = "";
+ }
+ draw();
+ }
  );
 
  projectSelect.addEventListener(
