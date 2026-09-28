@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.8.0-performance-bootstrap
+ * Version: 0.10.2-contact-sequence-full-name-timezone
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.10.0-whatsapp-templates";
+const APP_VERSION = "0.10.2-contact-sequence-full-name-timezone";
 
 
 
@@ -6006,6 +6006,37 @@ function renderAppPage() {
 
  const text = String(value).trim();
 
+ // ISO timestamps with Z or an explicit UTC offset represent an absolute
+ // instant. Render those in the CRM business timezone instead of displaying
+ // the source offset literally.
+ const hasExplicitTimezone =
+ /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})$/i.test(text);
+
+ if (hasExplicitTimezone) {
+ const instant = new Date(text);
+
+ if (!Number.isNaN(instant.getTime())) {
+ return new Intl.DateTimeFormat(
+ "es-MX",
+ includeTime
+ ? {
+ timeZone: "America/Monterrey",
+ day: "2-digit",
+ month: "2-digit",
+ year: "numeric",
+ hour: "numeric",
+ minute: "2-digit"
+ }
+ : {
+ timeZone: "America/Monterrey",
+ day: "2-digit",
+ month: "2-digit",
+ year: "numeric"
+ }
+ ).format(instant);
+ }
+ }
+
  let match =
  text.match(
  /^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})(?:[ T]+(\\d{1,2}):(\\d{2})(?::\\d{2})?)?/
@@ -6049,11 +6080,10 @@ function renderAppPage() {
  return new Intl.DateTimeFormat(
  "es-MX",
  includeTime
- ? {day: "2-digit", month: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit"}
- : {day: "2-digit", month: "2-digit", year: "numeric"}
+ ? {timeZone: "America/Monterrey", day: "2-digit", month: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit"}
+ : {timeZone: "America/Monterrey", day: "2-digit", month: "2-digit", year: "numeric"}
  ).format(date);
  }
-
 
  function formatTodayDate(value) {
  if (!value) {
@@ -7953,10 +7983,10 @@ function renderAppPage() {
  }
 
 
- function followupOrdinalLabel(number) {
+ function contactOrdinalLabel(number) {
  const n = Math.max(1, Number(number) || 1);
- if (n === 1) return "Primer seguimiento";
  const labels = {
+ 1: "Primer contacto",
  2: "Segundo contacto",
  3: "Tercer contacto",
  4: "Cuarto contacto",
@@ -7970,45 +8000,118 @@ function renderAppPage() {
  return labels[n] || ("Contacto #" + n);
  }
 
-
- function countScheduledFollowups(historial) {
- const events = Array.isArray(historial) ? historial : [];
- let count = 0;
- events.forEach(function(event) {
- const type = normalized(event && event.tipo_evento);
- const field = normalized(event && event.campo);
- const hasNewValue = !!String(event && event.valor_nuevo || "").trim();
- if (type === "seguimiento_programado") {
- count++;
- return;
+ function historyLocalMillis(value) {
+ const text = String(value || "").trim();
+ if (!text) return NaN;
+ let match = text.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})[ T](\\d{1,2}):(\\d{2})(?::(\\d{2}))?/);
+ if (match) {
+ return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]), Number(match[4]), Number(match[5]), Number(match[6] || 0)).getTime();
  }
- if (
- type === "cambio_campo" &&
- field === "proximo_seguimiento" &&
- hasNewValue
- ) {
+ match = text.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})[ T](\\d{1,2}):(\\d{2})(?::(\\d{2}))?/);
+ if (match) {
+ return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6] || 0)).getTime();
+ }
+ const parsed = Date.parse(text);
+ return Number.isFinite(parsed) ? parsed : NaN;
+ }
+
+ function isContactadoTransition(event) {
+ return normalized(event && event.tipo_evento) === "cambio_campo" &&
+ normalized(event && event.campo) === "etapa" &&
+ normalized(event && event.valor_nuevo) === "contactado";
+ }
+
+ function isConfirmedMessageEvent(event) {
+ return normalized(event && event.tipo_evento) === "mensaje" &&
+ normalized(event && event.canal) === "whatsapp" &&
+ normalized(event && event.resultado) === "confirmado_usuario";
+ }
+
+ function contactAttemptCount(historial, lead) {
+ const events = Array.isArray(historial) ? historial : [];
+ const transitions = events.filter(isContactadoTransition).map(function(event, index) {
+ return {index: index, time: historyLocalMillis(event && event.fecha_hora), matched: false};
+ });
+ const messages = events.filter(isConfirmedMessageEvent);
+ let count = transitions.length;
+
+ // Un WhatsApp confirmado en la misma operación que Nuevo → Contactado no es
+ // un contacto adicional: es la evidencia del mismo primer contacto.
+ messages.forEach(function(event) {
+ const messageTime = historyLocalMillis(event && event.fecha_hora);
+ let best = -1;
+ let bestDistance = Infinity;
+ if (Number.isFinite(messageTime)) {
+ transitions.forEach(function(item, index) {
+ if (item.matched || !Number.isFinite(item.time)) return;
+ const distance = Math.abs(item.time - messageTime);
+ if (distance <= 2 * 60 * 1000 && distance < bestDistance) {
+ best = index;
+ bestDistance = distance;
+ }
+ });
+ }
+ if (best >= 0) {
+ transitions[best].matched = true;
+ } else {
  count++;
  }
  });
+
+ // Compatibilidad con historiales antiguos que ya estaban avanzados antes de
+ // que registráramos MENSAJE en Historial CRM.
+ if (count === 0) {
+ const stage = normalized(lead && lead.etapa);
+ if (["contactado", "calificado", "cita agendada", "compra", "no responde"].indexOf(stage) !== -1) {
+ count = 1;
+ }
+ }
  return count;
  }
 
-
- function followupSequenceBox(historial, lead, mode) {
- const count = countScheduledFollowups(historial);
- const hasCurrent = !!(lead && lead.proximo_seguimiento);
- let ordinal;
- if (mode === "current" && hasCurrent) {
- ordinal = Math.max(1, count);
- } else if (mode === "edit" && hasCurrent) {
- ordinal = Math.max(1, count);
- } else {
- ordinal = count + 1;
+ function contactTemplateTypeForOrdinal(number) {
+ const n = Math.max(1, Number(number) || 1);
+ if (n === 1) return "PRIMER_CONTACTO";
+ if (n === 2) return "SEGUNDO_CONTACTO";
+ if (n === 3) return "TERCER_CONTACTO";
+ return "CUARTO_MAS";
  }
+
+ function isAppointmentConfirmationFollowup(lead) {
+ return normalized(lead && lead.seguimiento_nota).indexOf("confirmar cita") === 0;
+ }
+
+ function followupDescriptor(historial, lead, options) {
+ const opts = options || {};
+ if (isAppointmentConfirmationFollowup(lead) && !opts.pendingContact) {
+ return {label: "Confirmación de cita", ordinal: 0, templateTypes: ["CONFIRMACION_CITA"]};
+ }
+ const completed = contactAttemptCount(historial, lead);
+ const ordinal = Math.max(1, completed + 1 + (opts.pendingContact ? 1 : 0));
+ const types = [contactTemplateTypeForOrdinal(ordinal)];
+ if (normalized(lead && lead.etapa) === "no responde") types.push("NO_RESPONDE", "RECONTACTO");
+ return {
+ label: contactOrdinalLabel(ordinal),
+ ordinal: ordinal,
+ templateTypes: Array.from(new Set(types))
+ };
+ }
+
+ function followupSequenceBox(historial, lead, options) {
+ const descriptor = followupDescriptor(historial, lead, options);
  const box = element("div", "followup-sequence-box");
  box.appendChild(element("div", "followup-sequence-label", "Tipo de seguimiento"));
- box.appendChild(element("div", "followup-sequence-value", followupOrdinalLabel(ordinal)));
+ const value = element("div", "followup-sequence-value", descriptor.label);
+ box.appendChild(value);
+ box._sequenceValue = value;
  return box;
+ }
+
+ function updateFollowupSequenceBox(box, historial, lead, options) {
+ if (!box) return;
+ const descriptor = followupDescriptor(historial, lead, options);
+ const value = box._sequenceValue || box.querySelector(".followup-sequence-value");
+ if (value) value.textContent = descriptor.label;
  }
 
 
@@ -8037,7 +8140,7 @@ function renderAppPage() {
  ? formatDateValue(lead.proximo_seguimiento, true)
  : "Sin seguimiento";
  const currentFollowupType = lead.proximo_seguimiento
- ? followupOrdinalLabel(Math.max(1, countScheduledFollowups(historial)))
+ ? followupDescriptor(historial, lead).label
  : "";
  const followupSub = [currentFollowupType, lead.seguimiento_actividad, lead.seguimiento_nota].filter(Boolean).join(" · ");
  addEditableInfoRow(
@@ -8211,8 +8314,10 @@ function renderAppPage() {
  function messageVariableMap(lead) {
  const me = state.me || {};
  const user = me.usuario || {};
+ const fullName = String(lead && lead.nombre || "").trim();
  return {
- "{nombre}": firstNameForMessage(lead && lead.nombre),
+ "{nombre}": fullName,
+ "{nombre_completo}": fullName,
  "{proyecto}": String(lead && lead.proyecto || ""),
  "{presupuesto}": messageBudgetValue(lead || {}),
  "{recamaras}": messageBedroomsValue(lead || {}),
@@ -8255,27 +8360,33 @@ function renderAppPage() {
  setTimeout(function() { link.remove(); }, 1000);
  }
 
+ function hideLegacyTemplateTypes(data) {
+ if (!data || typeof data !== "object") return data;
+ if (Array.isArray(data.tipos)) {
+ data.tipos = data.tipos.filter(function(item) {
+ return String(item && item.codigo || "").toUpperCase() !== "PRIMER_SEGUIMIENTO";
+ });
+ }
+ return data;
+ }
+
  async function loadMessageTemplates() {
  if (state.messageTemplates) return state.messageTemplates;
- const data = await api("/api/templates");
+ const data = hideLegacyTemplateTypes(await api("/api/templates"));
  state.messageTemplates = data;
  return data;
  }
 
- function templateTypeForFollowup(lead, historial) {
- const note = normalized(lead && lead.seguimiento_nota);
- if (note.indexOf("confirmar cita") === 0) return "CONFIRMACION_CITA";
- if (normalized(lead && lead.etapa) === "no responde") return "NO_RESPONDE";
- const count = countScheduledFollowups(historial);
- const ordinal = lead && lead.proximo_seguimiento ? Math.max(1, count) : count + 1;
- if (ordinal <= 1) return "PRIMER_SEGUIMIENTO";
- if (ordinal === 2) return "SEGUNDO_CONTACTO";
- if (ordinal === 3) return "TERCER_CONTACTO";
- return "CUARTO_MAS";
+ function templateTypesForFollowup(lead, historial) {
+ return followupDescriptor(historial, lead).templateTypes;
  }
 
- function templateTypeForContact(lead) {
- return normalized(lead && lead.etapa) === "no responde" ? "RECONTACTO" : "PRIMER_CONTACTO";
+ function templateTypesForContact(lead, historial) {
+ const ordinal = Math.max(1, contactAttemptCount(historial, lead) + 1);
+ const types = [];
+ if (normalized(lead && lead.etapa) === "no responde") types.push("RECONTACTO");
+ types.push(contactTemplateTypeForOrdinal(ordinal));
+ return Array.from(new Set(types));
  }
 
  function eligibleMessageTemplates(data, lead, requestedTypes) {
@@ -8284,6 +8395,7 @@ function renderAppPage() {
  return (data && Array.isArray(data.templates) ? data.templates : [])
  .filter(function(template) {
  if (!template || !template.activo) return false;
+ if (String(template.tipo_mensaje || "").toUpperCase() === "PRIMER_SEGUIMIENTO") return false;
  const scope = String(template.alcance || "GLOBAL").toUpperCase();
  if (scope === "PROYECTO" && normalized(template.proyecto) !== project) return false;
  return true;
@@ -8291,8 +8403,10 @@ function renderAppPage() {
  .sort(function(a, b) {
  const at = String(a.tipo_mensaje || "").toUpperCase();
  const bt = String(b.tipo_mensaje || "").toUpperCase();
- const ar = types.indexOf(at) !== -1 ? 0 : (at === "GENERAL" ? 1 : 2);
- const br = types.indexOf(bt) !== -1 ? 0 : (bt === "GENERAL" ? 1 : 2);
+ const ai = types.indexOf(at);
+ const bi = types.indexOf(bt);
+ const ar = ai >= 0 ? ai : (at === "GENERAL" ? types.length : types.length + 1);
+ const br = bi >= 0 ? bi : (bt === "GENERAL" ? types.length : types.length + 1);
  if (ar !== br) return ar - br;
  const ap = a.alcance === "PROYECTO" ? 0 : 1;
  const bp = b.alcance === "PROYECTO" ? 0 : 1;
@@ -8582,7 +8696,8 @@ function renderAppPage() {
  syncConfirmMode();
 
  const stageFollowupBox = element("div", "confirm-box");
- stageFollowupBox.appendChild(followupSequenceBox(historial, lead, "next"));
+ const stageFollowupSequence = followupSequenceBox(historial, lead);
+ stageFollowupBox.appendChild(stageFollowupSequence);
  const stageFollowupParts = parseLeadDateParts(lead.proximo_seguimiento);
  const stageFollowupDateControl = createMxDateControl(lead.proximo_seguimiento);
  const stageFollowupDate = stageFollowupDateControl.input;
@@ -8609,13 +8724,14 @@ function renderAppPage() {
  const syncContactChannel = function() {
  const isContactado = normalized(select.value) === "contactado";
  const isWhatsApp = normalized(contactChannel.value).indexOf("whatsapp") !== -1;
- contactComposer.show(isContactado && isWhatsApp, [templateTypeForContact(lead)]);
+ contactComposer.show(isContactado && isWhatsApp, templateTypesForContact(lead, historial));
  };
  contactChannel.addEventListener("change", syncContactChannel);
 
  const sync = function() {
  const stage = normalized(select.value);
  const needsGenericFollowup = stage !== "no responde" && stage !== "descartado" && stage !== "cita agendada";
+ updateFollowupSequenceBox(stageFollowupSequence, historial, lead, {pendingContact: stage === "contactado"});
  discard.sync(stage === "descartado");
  contactBox.style.display = stage === "contactado" ? "grid" : "none";
  if (stage !== "contactado") contactChannel.value = "";
@@ -8723,7 +8839,7 @@ function renderAppPage() {
 
  function openFollowupPopover(lead, options, crmLeadId, fromView, historial) {
  const pop = openPopover("Programar seguimiento");
- pop.body.appendChild(followupSequenceBox(historial, lead, lead.proximo_seguimiento ? "edit" : "next"));
+ pop.body.appendChild(followupSequenceBox(historial, lead));
  const parts = parseLeadDateParts(lead.proximo_seguimiento);
  const dateControl = createMxDateControl(lead.proximo_seguimiento);
  const date = dateControl.input;
@@ -8778,7 +8894,7 @@ function renderAppPage() {
  const selected = activity.options[activity.selectedIndex];
  const linked = selected ? String(selected.dataset.etapa || "") : "";
  const isWhatsApp = normalized(activity.value).indexOf("whatsapp") !== -1;
- followupComposer.show(isWhatsApp, [templateTypeForFollowup(lead, historial)]);
+ followupComposer.show(isWhatsApp, templateTypesForFollowup(lead, historial));
  stageBox.classList.toggle("visible", !!linked);
  stageText.textContent = linked ? "Esta actividad corresponde a la etapa “" + linked + "”. ¿Quiere cambiar también la etapa del lead?" : "";
  if (!linked) stageCheck.checked = false;
@@ -10513,7 +10629,7 @@ function renderAppPage() {
 
  async function loadTemplatesAdmin(force) {
  if (state.templatesAdmin && !force) return state.templatesAdmin;
- const data = await api("/api/templates?include_inactive=1");
+ const data = hideLegacyTemplateTypes(await api("/api/templates?include_inactive=1"));
  state.templatesAdmin = data;
  return data;
  }
@@ -10552,7 +10668,7 @@ function renderAppPage() {
  const name = element("input", "form-control");
  name.type = "text";
  name.maxLength = 120;
- name.placeholder = "Ej. Primer seguimiento · Montara";
+ name.placeholder = "Ej. Segundo contacto · Montara";
  name.value = source.nombre || "";
  pop.body.appendChild(popoverField("Nombre", name));
 
