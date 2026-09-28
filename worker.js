@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.13.0-catalogs-admin
+ * Version: 0.14.0-message-variables-admin
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.13.0-catalogs-admin";
+const APP_VERSION = "0.14.0-message-variables-admin";
 
 
 
@@ -964,6 +964,52 @@ async function routeRequest(request, env) {
  action: "catalogs.update",
  option_id: optionId,
  option: body?.option || {}
+ });
+ return jsonResponse({ok: true, data: upstream.data});
+ }
+
+ /**
+ * API MESSAGE VARIABLES — administración y variables personalizadas
+ */
+ if (url.pathname === "/api/message-variables" && method === "GET") {
+ const session = await requireSession(request, env);
+ const upstream = await callAppsScript(env, session.email, {
+ action: "message_variables.list"
+ });
+ const data = upstream && upstream.data !== undefined ? upstream.data : upstream;
+ if (!data || typeof data !== "object" || !Array.isArray(data.variables) || !Array.isArray(data.sources)) {
+ throw publicError(502, "El API no devolvió las variables de mensajes.");
+ }
+ return jsonResponse({ok: true, data: data});
+ }
+
+ if (url.pathname === "/api/message-variables" && method === "POST") {
+ requireSameOrigin(request);
+ const session = await requireSession(request, env);
+ let body;
+ try { body = await request.json(); }
+ catch { throw publicError(400, "Solicitud inválida."); }
+ const upstream = await callAppsScript(env, session.email, {
+ action: "message_variables.create",
+ kind: String(body?.kind || "CUSTOM"),
+ source_id: String(body?.source_id || ""),
+ variable: body?.variable || {}
+ });
+ return jsonResponse({ok: true, data: upstream.data});
+ }
+
+ if (url.pathname.startsWith("/api/message-variables/") && method === "PATCH") {
+ requireSameOrigin(request);
+ const session = await requireSession(request, env);
+ const variableId = decodeURIComponent(url.pathname.substring("/api/message-variables/".length)).trim();
+ if (!variableId) throw publicError(400, "Falta variable_id.");
+ let body;
+ try { body = await request.json(); }
+ catch { throw publicError(400, "Solicitud inválida."); }
+ const upstream = await callAppsScript(env, session.email, {
+ action: "message_variables.update",
+ variable_id: variableId,
+ variable: body?.variable || {}
  });
  return jsonResponse({ok: true, data: upstream.data});
  }
@@ -6299,6 +6345,90 @@ function renderAppPage() {
  .catalog-mini-badge.code { display: none; }
  .catalog-health { align-items: flex-start; }
  }
+
+ /* ===== Variables de mensajes ===== */
+ .variables-page { display: grid; gap: 16px; }
+ .variables-explainer {
+ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center;
+ border: 1px solid #cfe4d7; background: #f8fcf9; border-radius: 16px; padding: 14px 16px;
+ }
+ .variables-explainer strong { display: block; font-size: 13px; margin-bottom: 3px; }
+ .variables-explainer span { display: block; color: var(--muted); font-size: 11px; line-height: 1.45; max-width: 760px; }
+ .variables-explainer .save-button { white-space: nowrap; }
+ .variables-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+ .variables-controls {
+ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center;
+ border: 1px solid var(--line); border-radius: 15px; background: #fff; padding: 10px;
+ }
+ .variables-technical-toggle {
+ display: inline-flex; align-items: center; gap: 8px; padding: 0 8px; color: #666; font-size: 10px; font-weight: 700; white-space: nowrap;
+ }
+ .variables-section { display: grid; gap: 9px; }
+ .variables-section-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; padding: 2px 2px 0; }
+ .variables-section-head h3 { margin: 0; font-size: 14px; }
+ .variables-section-head span { color: var(--muted); font-size: 10px; }
+ .variable-list { display: grid; gap: 8px; }
+ .variable-row {
+ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center;
+ border: 1px solid var(--line); border-radius: 15px; background: #fff; padding: 12px 14px;
+ }
+ .variable-row.technical { background: #fbfaf7; border-color: #e8dfca; }
+ .variable-row.hidden-variable { background: #fafaf8; }
+ .variable-main { min-width: 0; }
+ .variable-title-line { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+ .variable-name { font-size: 13px; font-weight: 800; }
+ .variable-token-chip {
+ display: inline-flex; align-items: center; border-radius: 8px; background: #f1f1ee; border: 1px solid #e1e1dc;
+ padding: 4px 7px; color: #333; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 750;
+ }
+ .variable-source-chip {
+ display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--line); padding: 4px 7px;
+ color: #666; background: #fff; font-size: 9px; font-weight: 800;
+ }
+ .variable-source-chip.custom { color: #216e45; border-color: #cfe4d7; background: #f4fbf6; }
+ .variable-source-chip.technical { color: #6d5620; border-color: #ead9b4; background: #fffaf0; }
+ .variable-meta { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 6px; color: var(--muted); font-size: 9px; line-height: 1.4; }
+ .variable-example { margin-top: 5px; color: #555; font-size: 10px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+ .variable-actions { display: flex; gap: 7px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+ .variable-visibility { min-width: 96px; }
+ .variable-unused-note { color: #8a8a84; }
+ .variables-empty { border: 1px dashed #d6d6d0; border-radius: 15px; padding: 22px; color: var(--muted); text-align: center; font-size: 11px; }
+ .custom-variable-card { border-left: 3px solid #52a36f; }
+ .custom-options-preview { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+ .custom-option-chip { border-radius: 999px; background: #f3f7f4; border: 1px solid #d9e8de; padding: 4px 7px; font-size: 9px; color: #496352; }
+ .custom-option-chip.default { background: #eaf6ee; color: #216e45; border-color: #c5dfce; font-weight: 800; }
+ .custom-variable-editor .form-textarea { min-height: 78px; }
+ .custom-options-editor { display: grid; gap: 7px; }
+ .custom-option-edit-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; align-items: center; }
+ .custom-option-default { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; color: #666; white-space: nowrap; }
+ .custom-option-remove { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font: inherit; cursor: pointer; }
+ .custom-add-option { justify-self: start; }
+ .custom-variable-token-preview {
+ border: 1px solid var(--line); background: #f7f7f5; border-radius: 12px; padding: 10px 12px;
+ display: flex; justify-content: space-between; align-items: center; gap: 10px;
+ }
+ .custom-variable-token-preview code { font-size: 11px; font-weight: 800; }
+ .custom-variable-token-preview span { color: var(--muted); font-size: 9px; }
+ .custom-resolver-box {
+ display: none; gap: 9px; border: 1px solid #d8e5dc; background: #fbfefc; border-radius: 13px; padding: 11px;
+ }
+ .custom-resolver-box.visible { display: grid; }
+ .custom-resolver-title { font-size: 11px; font-weight: 800; color: #32533d; }
+ .custom-resolver-help { color: #68806f; font-size: 9px; line-height: 1.4; }
+ .custom-resolver-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+ .custom-resolver-field { display: grid; gap: 4px; }
+ .custom-resolver-field label { font-size: 9px; font-weight: 750; color: #657268; }
+
+ @media (max-width: 720px) {
+ .variables-explainer { grid-template-columns: 1fr; }
+ .variables-explainer .save-button { width: 100%; }
+ .variables-controls { grid-template-columns: 1fr; }
+ .variable-row { grid-template-columns: 1fr; }
+ .variable-actions { justify-content: flex-start; }
+ .custom-resolver-fields { grid-template-columns: 1fr; }
+ .custom-option-edit-row { grid-template-columns: minmax(0, 1fr) auto; }
+ .custom-option-default { grid-column: 1 / -1; }
+ }
  </style>
 </head>
 
@@ -6393,6 +6523,10 @@ function renderAppPage() {
  catalogsSearch: "",
  catalogsOptionSearch: "",
  catalogsOptionStatus: "all",
+ variablesAdmin: null,
+ variablesGroup: "crm",
+ variablesSearch: "",
+ variablesShowTechnical: false,
  templatesFilterType: "",
  templatesFilterProject: "",
  templatesFilterStatus: "all",
@@ -6919,6 +7053,10 @@ function renderAppPage() {
  return {type: "catalogs"};
  }
 
+ if (hash === "#mas/variables") {
+ return {type: "variables"};
+ }
+
  if (
  hash.startsWith("#lead/")
  ) {
@@ -6984,6 +7122,15 @@ function renderAppPage() {
  document.getElementById("topbarTitle").textContent = "Catálogos";
  await renderCatalogsAdmin();
  restoreScroll("#mas/catalogos");
+ return;
+ }
+
+ if (route.type === "variables") {
+ setActiveNav("mas");
+ state.currentView = "mas";
+ document.getElementById("topbarTitle").textContent = "Variables mensajes";
+ await renderMessageVariablesAdmin();
+ restoreScroll("#mas/variables");
  return;
  }
 
@@ -9352,25 +9499,28 @@ function renderAppPage() {
  const user = me.usuario || {};
  const fullName = String(lead && lead.nombre || "").trim();
  const firstName = firstNameForMessage(fullName);
- return {
- "{nombre}": firstName,
- "{nombre_completo}": fullName,
- "{proyecto}": String(lead && lead.proyecto || ""),
- "{presupuesto}": messageBudgetValue(lead || {}),
- "{recamaras}": messageBedroomsValue(lead || {}),
- "{plazo}": messageTermValue(lead || {}),
- "{forma_pago}": String(lead && (lead.forma_pago || lead.forma_pago_otro) || ""),
- "{fecha_cita}": lead && lead.fecha_cita ? formatDateValue(lead.fecha_cita, true) : "",
- "{inmobiliaria}": String(me.inmobiliaria || "OV Real Estate"),
- "{asesor}": firstNameForMessage(user.nombre || user.correo || "")
- };
+ const dynamic = lead && lead.message_variable_values && typeof lead.message_variable_values === "object"
+ ? lead.message_variable_values
+ : {};
+ const values = Object.assign({}, dynamic);
+ values["{nombre}"] = firstName;
+ values["{nombre_completo}"] = fullName;
+ values["{proyecto}"] = String(lead && lead.proyecto || "");
+ values["{presupuesto}"] = messageBudgetValue(lead || {});
+ values["{recamaras}"] = messageBedroomsValue(lead || {});
+ values["{plazo}"] = messageTermValue(lead || {});
+ values["{forma_pago}"] = String(lead && (normalized(lead.forma_pago) === "otro" ? (lead.forma_pago_otro || lead.forma_pago) : (lead.forma_pago || lead.forma_pago_otro)) || "");
+ values["{fecha_cita}"] = lead && lead.fecha_cita ? formatDateValue(lead.fecha_cita, true) : "";
+ values["{inmobiliaria}"] = String(me.inmobiliaria || "OV Real Estate");
+ values["{asesor}"] = firstNameForMessage(user.nombre || user.correo || "");
+ return values;
  }
 
- function renderMessageTemplateForLead(message, lead) {
+ function renderMessageTemplateForLead(message, lead, customValues) {
  let text = String(message || "");
- const values = messageVariableMap(lead || {});
+ const values = Object.assign({}, messageVariableMap(lead || {}), customValues || {});
  Object.keys(values).forEach(function(token) {
- text = text.split(token).join(values[token]);
+ text = text.split(token).join(values[token] == null ? "" : String(values[token]));
  });
  return text;
  }
@@ -9466,6 +9616,16 @@ function renderAppPage() {
  });
  }
 
+ function templateCustomVariables(data, template) {
+ const message = String(template && template.mensaje || "");
+ const all = data && Array.isArray(data.all_variables)
+ ? data.all_variables
+ : (data && Array.isArray(data.variables) ? data.variables : []);
+ return all.filter(function(variable) {
+ return variable && String(variable.tipo_fuente || "").toUpperCase() === "CUSTOM" && variable.activa !== false && variable.token && message.indexOf(variable.token) !== -1;
+ });
+ }
+
  function createWhatsAppComposer(lead, config) {
  const opts = config || {};
  const root = element("div", "confirm-box whatsapp-composer");
@@ -9483,6 +9643,13 @@ function renderAppPage() {
  const templateSelect = element("select", "form-control");
  const templateField = popoverField("Plantilla", templateSelect);
  root.appendChild(templateField);
+
+ const customResolver = element("div", "custom-resolver-box");
+ customResolver.appendChild(element("div", "custom-resolver-title", "Completar variables"));
+ customResolver.appendChild(element("div", "custom-resolver-help", "Estas variables no vienen del lead. Complétalas antes de editar o abrir el mensaje."));
+ const customResolverFields = element("div", "custom-resolver-fields");
+ customResolver.appendChild(customResolverFields);
+ root.appendChild(customResolver);
 
  const message = element("textarea", "form-control form-textarea");
  message.placeholder = "Puedes editar el texto aquí. Si prefieres escribir directamente en WhatsApp, déjalo en blanco.";
@@ -9509,6 +9676,8 @@ function renderAppPage() {
  let loaded = false;
  let loading = null;
  let currentTypes = Array.isArray(opts.types) ? opts.types.slice() : [];
+ let currentCustomVariables = [];
+ let customValues = {};
 
  function selectedTemplate() {
  if (!data) return null;
@@ -9516,10 +9685,80 @@ function renderAppPage() {
  return (data.templates || []).find(function(item) { return item.template_id === id; }) || null;
  }
 
- function fillFromSelectedTemplate() {
+ function unresolvedCustomVariables() {
+ return currentCustomVariables.filter(function(variable) {
+ return !String(customValues[variable.token] || "").trim();
+ });
+ }
+
+ function regenerateTemplateMessage() {
  const template = selectedTemplate();
  if (!template) return;
- message.value = renderMessageTemplateForLead(template.mensaje, lead);
+ message.value = renderMessageTemplateForLead(template.mensaje, lead, customValues);
+ const unresolved = unresolvedCustomVariables();
+ message.disabled = unresolved.length > 0;
+ if (unresolved.length) {
+ helper.textContent = "Completa " + unresolved.map(function(v) { return v.nombre || v.token; }).join(", ") + " para generar el mensaje.";
+ } else {
+ helper.textContent = "Puedes editar el texto generado sin modificar la plantilla original.";
+ }
+ }
+
+ function rebuildCustomResolver() {
+ const template = selectedTemplate();
+ currentCustomVariables = templateCustomVariables(data, template);
+ customValues = {};
+ customResolverFields.replaceChildren();
+ customResolver.classList.toggle("visible", currentCustomVariables.length > 0);
+
+ currentCustomVariables.forEach(function(variable) {
+ const field = element("div", "custom-resolver-field");
+ field.appendChild(element("label", "", variable.nombre || variable.token));
+ let control;
+ if (String(variable.formato || "").toLowerCase() === "lista") {
+ control = element("select", "form-control");
+ const blank = element("option", "", "Seleccionar…");
+ blank.value = "";
+ control.appendChild(blank);
+ const options = Array.isArray(variable.opciones) ? variable.opciones.filter(function(o) { return o && o.activo !== false; }) : [];
+ options.forEach(function(item) {
+ const option = element("option", "", item.etiqueta || item.valor);
+ option.value = item.valor;
+ if (item.predeterminado) option.selected = true;
+ control.appendChild(option);
+ });
+ if (control.value) customValues[variable.token] = control.value;
+ control.addEventListener("change", function() {
+ customValues[variable.token] = control.value;
+ regenerateTemplateMessage();
+ });
+ } else {
+ control = element("input", "form-control");
+ control.type = "text";
+ control.placeholder = variable.ejemplo ? "Ej. " + variable.ejemplo : "Escribe un valor";
+ control.addEventListener("input", function() {
+ customValues[variable.token] = control.value.trim();
+ regenerateTemplateMessage();
+ });
+ }
+ field.appendChild(control);
+ customResolverFields.appendChild(field);
+ });
+ regenerateTemplateMessage();
+ }
+
+ function fillFromSelectedTemplate() {
+ const template = selectedTemplate();
+ if (!template) {
+ currentCustomVariables = [];
+ customValues = {};
+ customResolver.classList.remove("visible");
+ customResolverFields.replaceChildren();
+ message.value = "";
+ message.disabled = false;
+ return;
+ }
+ rebuildCustomResolver();
  }
 
  function rebuildTemplateSelect() {
@@ -9573,10 +9812,16 @@ function renderAppPage() {
  function syncMode() {
  const usingTemplate = mode.value === "TEMPLATE";
  templateField.style.display = usingTemplate ? "grid" : "none";
- if (!usingTemplate && opts.clearCustomOnSwitch !== false) message.value = "";
- helper.textContent = usingTemplate
- ? "Puedes editar el texto generado sin modificar la plantilla original."
- : "Escribe aquí algo personal o deja el campo en blanco para redactarlo directamente en WhatsApp.";
+ customResolver.classList.toggle("visible", usingTemplate && currentCustomVariables.length > 0);
+ if (!usingTemplate) {
+ currentCustomVariables = [];
+ customValues = {};
+ message.disabled = false;
+ if (opts.clearCustomOnSwitch !== false) message.value = "";
+ helper.textContent = "Escribe aquí algo personal o deja el campo en blanco para redactarlo directamente en WhatsApp.";
+ } else if (selectedTemplate()) {
+ rebuildCustomResolver();
+ }
  }
 
  mode.addEventListener("change", function() {
@@ -9592,6 +9837,8 @@ function renderAppPage() {
  if (mode.value === "TEMPLATE") {
  await ensureLoaded();
  if (!templateSelect.value) throw new Error("Seleccione una plantilla o cambie a Mensaje personalizado.");
+ const unresolved = unresolvedCustomVariables();
+ if (unresolved.length) throw new Error("Complete la variable " + (unresolved[0].nombre || unresolved[0].token) + " antes de abrir WhatsApp.");
  }
  openWhatsAppMac(lead, message.value);
  status.textContent = "WhatsApp abierto. Regresa al CRM después de enviar y confirma el envío.";
@@ -9615,6 +9862,10 @@ function renderAppPage() {
  validateSent: function() {
  if (mode.value === "TEMPLATE" && !templateSelect.value) {
  throw new Error("Seleccione una plantilla o cambie a Mensaje personalizado.");
+ }
+ const unresolved = unresolvedCustomVariables();
+ if (mode.value === "TEMPLATE" && unresolved.length) {
+ throw new Error("Complete la variable " + (unresolved[0].nombre || unresolved[0].token) + ".");
  }
  if (!sent.checked) throw new Error("Confirme que envió el mensaje por WhatsApp antes de guardar Contactado.");
  },
@@ -11929,9 +12180,10 @@ function renderAppPage() {
  },
  {
  title: "Variables mensajes",
- text: "Tokens como {nombre}, {proyecto}, {presupuesto} y más.",
- action: "Se administran desde la hoja por ahora",
- enabled: false
+ text: "Controla qué datos puedes insertar en plantillas y crea variables propias como {municipio}.",
+ action: "Administrar variables →",
+ enabled: true,
+ onClick: function() { navigate("mas/variables"); }
  },
  {
  title: "Mi inmobiliaria",
@@ -12144,7 +12396,7 @@ function renderAppPage() {
  if (!projectScoped) projectInput.value = "";
  };
  const updatePreview = function() {
- preview.textContent = renderTemplatePreview(message.value, data.variables || []);
+ preview.textContent = renderTemplatePreview(message.value, data.all_variables || data.variables || []);
  };
  scope.addEventListener("change", syncScope);
  message.addEventListener("input", updatePreview);
@@ -12729,6 +12981,441 @@ function renderAppPage() {
  content.replaceChildren(element("div", "empty-state", "No se pudieron cargar los catálogos."));
  showError(error.message);
  reportClientError(error, {accion: "catalogs.list", endpoint: "/api/catalogs"});
+ }
+ }
+
+
+ function variableTokenSlug(value) {
+ return String(value || "")
+ .trim()
+ .toLowerCase()
+ .normalize("NFD")
+ .replace(/[\u0300-\u036f]/g, "")
+ .replace(/[^a-z0-9]+/g, "_")
+ .replace(/^_+|_+$/g, "");
+ }
+
+ async function loadMessageVariablesAdmin(force) {
+ if (state.variablesAdmin && !force) return state.variablesAdmin;
+ const data = await api("/api/message-variables");
+ state.variablesAdmin = data;
+ return data;
+ }
+
+ function refreshMessageVariablesScreenFromState() {
+ if (location.hash !== "#mas/variables") return;
+ renderMessageVariablesAdmin(true).catch(function(error) {
+ showError(error.message);
+ reportClientError(error, {accion: "message_variables.render", endpoint: "/api/message-variables"});
+ });
+ }
+
+ function variableSourceLabel(item) {
+ const type = String(item && item.tipo_fuente || "").toUpperCase();
+ if (type === "CRM") return "CRM · " + (item.campo_fuente || "Campo");
+ if (type === "CALCULADA") return "Calculada";
+ if (type === "CONFIG") return "Empresa · " + (item.campo_fuente || "Config");
+ if (type === "USUARIO") return "Usuario · " + (item.campo_fuente || "Dato");
+ if (type === "CUSTOM") return "Personalizada";
+ return type || "Variable";
+ }
+
+ function combinedVariableSources(data) {
+ const sources = Array.isArray(data && data.sources) ? data.sources.slice() : [];
+ const vars = Array.isArray(data && data.variables) ? data.variables : [];
+ const represented = new Set(sources.map(function(item) { return String(item.variable_id || ""); }).filter(Boolean));
+ vars.forEach(function(variable) {
+ if (variable.personalizada || represented.has(String(variable.variable_id || ""))) return;
+ sources.push({
+ source_id: "REGISTRY|" + variable.variable_id,
+ tipo_fuente: variable.tipo_fuente,
+ campo_fuente: variable.campo_fuente,
+ nombre: variable.nombre,
+ token: variable.token,
+ grupo: variable.grupo,
+ formato: variable.formato,
+ ejemplo: variable.ejemplo,
+ technical: String(variable.grupo || "").toLowerCase() === "avanzadas",
+ registered: true,
+ variable_id: variable.variable_id,
+ habilitada: !!variable.habilitada,
+ activa: variable.activa !== false,
+ personalizada: false,
+ usage_count: Number(variable.usage_count || 0),
+ used_in: variable.used_in || []
+ });
+ });
+ return sources;
+ }
+
+ async function toggleMessageVariableVisibility(item) {
+ if (!item) return;
+ const next = !item.habilitada;
+ try {
+ if (item.variable_id) {
+ await api("/api/message-variables/" + encodeURIComponent(item.variable_id), {
+ method: "PATCH",
+ body: JSON.stringify({variable: {habilitada: next}})
+ });
+ } else if (next) {
+ await api("/api/message-variables", {
+ method: "POST",
+ body: JSON.stringify({kind: "SOURCE", source_id: item.source_id})
+ });
+ } else {
+ return;
+ }
+ state.variablesAdmin = null;
+ state.messageTemplates = null;
+ state.templatesAdmin = null;
+ await loadMessageVariablesAdmin(true);
+ refreshMessageVariablesScreenFromState();
+ } catch (error) {
+ showError(error.message || "No se pudo actualizar la variable.");
+ }
+ }
+
+ function createCustomOptionEditor(container, value, isDefault, radioName, onRemove) {
+ const row = element("div", "custom-option-edit-row");
+ const input = element("input", "form-control");
+ input.type = "text";
+ input.placeholder = "Ej. Santa Catarina";
+ input.value = value || "";
+ const defaultLabel = element("label", "custom-option-default");
+ const radio = element("input");
+ radio.type = "radio";
+ radio.name = radioName;
+ radio.checked = !!isDefault;
+ defaultLabel.append(radio, document.createTextNode(" Predeterminada"));
+ const remove = element("button", "custom-option-remove", "×");
+ remove.type = "button";
+ remove.title = "Quitar opción";
+ remove.addEventListener("click", function() {
+ row.remove();
+ if (onRemove) onRemove();
+ });
+ row.append(input, defaultLabel, remove);
+ container.appendChild(row);
+ return {row: row, input: input, radio: radio};
+ }
+
+ function openCustomVariableEditor(variable, data) {
+ const isEdit = !!(variable && variable.variable_id);
+ if (!data || !data.can_edit) {
+ showError("Solo un administrador puede modificar variables.");
+ return;
+ }
+ const source = variable || {};
+ const pop = openPopover(isEdit ? "Editar variable personalizada" : "Nueva variable personalizada");
+ pop.panel.classList.add("custom-variable-editor");
+
+ const name = element("input", "form-control");
+ name.type = "text";
+ name.maxLength = 80;
+ name.placeholder = "Ej. Municipio";
+ name.value = source.nombre || "";
+ pop.body.appendChild(popoverField("Nombre", name));
+
+ const token = element("input", "form-control");
+ token.type = "text";
+ token.maxLength = 60;
+ token.placeholder = "municipio";
+ token.value = String(source.token || "").replace(/^\{|\}$/g, "");
+ token.disabled = isEdit;
+ const tokenField = popoverField("Token", token);
+ pop.body.appendChild(tokenField);
+ const tokenPreview = element("div", "custom-variable-token-preview");
+ const tokenCode = document.createElement("code");
+ tokenCode.textContent = source.token || "{municipio}";
+ tokenPreview.append(tokenCode, element("span", "", isEdit ? "El token queda fijo para no romper plantillas existentes." : "Se insertará así dentro de las plantillas."));
+ pop.body.appendChild(tokenPreview);
+
+ const type = element("select", "form-control");
+ [["lista", "Lista de opciones"], ["texto", "Texto libre al preparar el mensaje"]].forEach(function(item) {
+ const option = element("option", "", item[1]);
+ option.value = item[0];
+ if (String(source.formato || "lista").toLowerCase() === item[0]) option.selected = true;
+ type.appendChild(option);
+ });
+ type.disabled = isEdit;
+ pop.body.appendChild(popoverField("Tipo", type));
+
+ const visibleLabel = element("label", "confirm-line");
+ const visible = element("input");
+ visible.type = "checkbox";
+ visible.checked = source.habilitada !== false;
+ visibleLabel.append(visible, document.createTextNode(" Mostrar esta variable en el editor de plantillas"));
+ pop.body.appendChild(visibleLabel);
+
+ const optionsWrap = element("div", "custom-options-editor");
+ const optionRows = [];
+ const radioName = "custom-default-" + String(Date.now());
+ const currentOptions = Array.isArray(source.opciones) ? source.opciones : [];
+ function addOption(value, selected) {
+ const editor = createCustomOptionEditor(optionsWrap, value, selected, radioName, function() {});
+ optionRows.push(editor);
+ }
+ currentOptions.forEach(function(item) { addOption(item.valor || item.etiqueta || "", !!item.predeterminado); });
+ if (!currentOptions.length && String(source.formato || "lista").toLowerCase() === "lista") addOption("", false);
+ const optionsField = popoverField("Opciones", optionsWrap);
+ pop.body.appendChild(optionsField);
+ const addOptionButton = element("button", "secondary-button custom-add-option", "+ Agregar opción");
+ addOptionButton.type = "button";
+ addOptionButton.addEventListener("click", function() { addOption("", false); });
+ pop.body.appendChild(addOptionButton);
+
+ const example = element("input", "form-control");
+ example.type = "text";
+ example.placeholder = "Ej. Santa Catarina";
+ example.value = source.ejemplo || "";
+ pop.body.appendChild(popoverField("Ejemplo / ayuda", example));
+
+ const notes = element("textarea", "form-control form-textarea");
+ notes.placeholder = "Uso interno opcional. Ej. Municipio donde se ubica el proyecto.";
+ notes.value = source.notas || "";
+ pop.body.appendChild(popoverField("Notas", notes));
+
+ function updateTokenPreview() {
+ const raw = token.value.trim() || name.value.trim();
+ const slug = variableTokenSlug(raw) || "variable";
+ tokenCode.textContent = "{" + slug + "}";
+ }
+ function syncType() {
+ const isList = type.value === "lista";
+ optionsField.style.display = isList ? "grid" : "none";
+ addOptionButton.style.display = isList ? "inline-flex" : "none";
+ }
+ name.addEventListener("input", function() { if (!token.value.trim()) updateTokenPreview(); });
+ token.addEventListener("input", updateTokenPreview);
+ type.addEventListener("change", syncType);
+ updateTokenPreview();
+ syncType();
+
+ popoverActions(pop, async function() {
+ const payload = {
+ nombre: name.value.trim(),
+ token: "{" + (variableTokenSlug(token.value.trim() || name.value.trim()) || "") + "}",
+ formato: type.value,
+ habilitada: visible.checked,
+ ejemplo: example.value.trim(),
+ notas: notes.value.trim()
+ };
+ if (!payload.nombre) throw new Error("Capture un nombre para la variable.");
+ if (payload.token === "{}") throw new Error("Capture un token válido.");
+ if (type.value === "lista") {
+ const rows = Array.from(optionsWrap.querySelectorAll(".custom-option-edit-row"));
+ const options = rows.map(function(row) {
+ const input = row.querySelector('input[type="text"]');
+ return input ? input.value.trim() : "";
+ }).filter(Boolean);
+ if (!options.length) throw new Error("Agregue al menos una opción.");
+ const defaultRow = rows.find(function(row) {
+ const radio = row.querySelector('input[type="radio"]');
+ return radio && radio.checked;
+ });
+ const defaultInput = defaultRow ? defaultRow.querySelector('input[type="text"]') : null;
+ payload.opciones = options;
+ payload.valor_predeterminado = defaultInput ? defaultInput.value.trim() : "";
+ }
+
+ if (isEdit) {
+ await api("/api/message-variables/" + encodeURIComponent(source.variable_id), {
+ method: "PATCH",
+ body: JSON.stringify({variable: payload})
+ });
+ } else {
+ await api("/api/message-variables", {
+ method: "POST",
+ body: JSON.stringify({kind: "CUSTOM", variable: payload})
+ });
+ }
+ state.variablesAdmin = null;
+ state.messageTemplates = null;
+ state.templatesAdmin = null;
+ await loadMessageVariablesAdmin(true);
+ refreshMessageVariablesScreenFromState();
+ }, isEdit ? "Guardar cambios" : "Crear variable");
+ }
+
+ function variableRowElement(item, data, isCustom) {
+ const row = element("div", "variable-row" + (item.technical ? " technical" : "") + (!item.habilitada ? " hidden-variable" : "") + (isCustom ? " custom-variable-card" : ""));
+ const main = element("div", "variable-main");
+ const title = element("div", "variable-title-line");
+ title.appendChild(element("span", "variable-name", item.nombre || item.token || "Variable"));
+ title.appendChild(element("code", "variable-token-chip", item.token || ""));
+ const sourceClass = item.technical ? " technical" : (isCustom ? " custom" : "");
+ title.appendChild(element("span", "variable-source-chip" + sourceClass, variableSourceLabel(item)));
+ if (!item.registered && !isCustom) title.appendChild(element("span", "variable-source-chip", "Disponible"));
+ main.appendChild(title);
+
+ const meta = element("div", "variable-meta");
+ meta.appendChild(element("span", "", item.grupo || "General"));
+ meta.appendChild(element("span", "", Number(item.usage_count || 0) + (Number(item.usage_count || 0) === 1 ? " plantilla" : " plantillas")));
+ if (!item.habilitada) meta.appendChild(element("span", "variable-unused-note", "Oculta en el editor"));
+ main.appendChild(meta);
+ if (item.ejemplo) main.appendChild(element("div", "variable-example", "Ejemplo: " + item.ejemplo));
+ if (isCustom && Array.isArray(item.opciones) && item.opciones.length) {
+ const chips = element("div", "custom-options-preview");
+ item.opciones.slice(0, 6).forEach(function(option) {
+ chips.appendChild(element("span", "custom-option-chip" + (option.predeterminado ? " default" : ""), (option.predeterminado ? "★ " : "") + (option.etiqueta || option.valor)));
+ });
+ if (item.opciones.length > 6) chips.appendChild(element("span", "custom-option-chip", "+" + (item.opciones.length - 6)));
+ main.appendChild(chips);
+ }
+ row.appendChild(main);
+
+ const actions = element("div", "variable-actions");
+ if (data.can_edit) {
+ const toggle = element("button", "catalog-toggle variable-visibility " + (item.habilitada ? "on" : "off"), item.habilitada ? "Visible" : "Oculta");
+ toggle.type = "button";
+ toggle.title = item.habilitada ? "Ocultar del editor de plantillas" : "Mostrar en el editor de plantillas";
+ toggle.addEventListener("click", function() { toggleMessageVariableVisibility(item); });
+ actions.appendChild(toggle);
+ if (isCustom) {
+ const edit = element("button", "secondary-button catalog-edit-button", "Editar");
+ edit.type = "button";
+ edit.addEventListener("click", function() { openCustomVariableEditor(item, data); });
+ actions.appendChild(edit);
+ }
+ }
+ row.appendChild(actions);
+ return row;
+ }
+
+ async function renderMessageVariablesAdmin(fromStateOnly) {
+ const content = clearContent();
+ if (!fromStateOnly || !state.variablesAdmin) {
+ content.className = "loading";
+ content.textContent = "Cargando variables…";
+ }
+ try {
+ const data = await loadMessageVariablesAdmin(false);
+ const page = element("div", "variables-page");
+ const toolbar = element("div", "templates-toolbar");
+ const back = element("button", "templates-back", "← Más");
+ back.type = "button";
+ back.addEventListener("click", function() { navigate("mas"); });
+ const reload = element("button", "secondary-button", "Actualizar");
+ reload.type = "button";
+ reload.addEventListener("click", async function() {
+ reload.disabled = true;
+ try {
+ state.variablesAdmin = null;
+ await loadMessageVariablesAdmin(true);
+ refreshMessageVariablesScreenFromState();
+ } finally { reload.disabled = false; }
+ });
+ toolbar.append(back, reload);
+ page.appendChild(toolbar);
+
+ page.appendChild(createHero(
+ "MENSAJERÍA DINÁMICA",
+ "Variables mensajes",
+ "Decide qué datos aparecen al construir plantillas y crea variables propias sin agregar columnas al CRM."
+ ));
+
+ const summary = data.summary || {};
+ const metrics = element("div", "catalog-metrics");
+ metrics.appendChild(catalogMetricCard(summary.available_sources || 0, "Datos disponibles"));
+ metrics.appendChild(catalogMetricCard(summary.visible_variables || 0, "Visibles en plantillas"));
+ metrics.appendChild(catalogMetricCard(summary.custom_variables || 0, "Personalizadas"));
+ metrics.appendChild(catalogMetricCard(summary.used_variables || 0, "Variables en uso", summary.issues ? "warning" : "ok"));
+ page.appendChild(metrics);
+
+ const explainer = element("div", "variables-explainer");
+ const explainText = element("div", "");
+ explainText.appendChild(element("strong", "", "Una variable no tiene que existir como columna del CRM."));
+ explainText.appendChild(element("span", "", "Las variables de datos se rellenan automáticamente. Las personalizadas —por ejemplo {municipio}— pueden tener una lista de opciones y la App te pedirá elegir el valor justo antes de preparar WhatsApp."));
+ explainer.appendChild(explainText);
+ if (data.can_edit) {
+ const add = element("button", "save-button", "+ Nueva variable");
+ add.type = "button";
+ add.addEventListener("click", function() { openCustomVariableEditor(null, data); });
+ explainer.appendChild(add);
+ }
+ page.appendChild(explainer);
+
+ const health = element("div", "catalog-health " + (summary.issues ? "warning" : "ok"));
+ health.appendChild(element("div", "catalog-health-icon", summary.issues ? "!" : "✓"));
+ const healthText = element("div", "");
+ healthText.appendChild(element("strong", "", summary.issues ? "Hay variables personalizadas incompletas" : "Variables listas para usar"));
+ healthText.appendChild(element("span", "", summary.issues ? "Alguna variable de lista usada por una plantilla no tiene opciones activas." : "Ocultar una variable solo la quita del selector; las plantillas existentes siguen funcionando."));
+ health.appendChild(healthText);
+ page.appendChild(health);
+
+ const tabs = element("div", "variables-tabs");
+ [
+ {key: "crm", label: "Datos del CRM"},
+ {key: "company", label: "Empresa y asesor"},
+ {key: "custom", label: "Personalizadas"}
+ ].forEach(function(group) {
+ const button = element("button", "catalog-group-tab" + (state.variablesGroup === group.key ? " active" : ""), group.label);
+ button.type = "button";
+ button.addEventListener("click", function() { state.variablesGroup = group.key; refreshMessageVariablesScreenFromState(); });
+ tabs.appendChild(button);
+ });
+ page.appendChild(tabs);
+
+ const controls = element("div", "variables-controls");
+ const search = element("input", "form-control");
+ search.type = "search";
+ search.placeholder = "Buscar por nombre, token o campo";
+ search.value = state.variablesSearch;
+ search.addEventListener("input", function() { state.variablesSearch = search.value; refreshMessageVariablesScreenFromState(); });
+ controls.appendChild(search);
+ if (state.variablesGroup === "crm") {
+ const technical = element("label", "variables-technical-toggle");
+ const checkbox = element("input");
+ checkbox.type = "checkbox";
+ checkbox.checked = !!state.variablesShowTechnical;
+ checkbox.addEventListener("change", function() { state.variablesShowTechnical = checkbox.checked; refreshMessageVariablesScreenFromState(); });
+ technical.append(checkbox, document.createTextNode(" Mostrar variables técnicas"));
+ controls.appendChild(technical);
+ }
+ page.appendChild(controls);
+
+ const list = element("div", "variable-list");
+ const query = normalized(state.variablesSearch || "");
+ if (state.variablesGroup === "custom") {
+ const custom = Array.isArray(data.custom_variables) ? data.custom_variables.slice() : [];
+ const filtered = custom.filter(function(item) {
+ if (!query) return true;
+ return normalized([item.nombre, item.token, item.notas, item.ejemplo].join(" ")).includes(query);
+ });
+ if (!filtered.length) list.appendChild(element("div", "variables-empty", custom.length ? "No hay variables personalizadas con esa búsqueda." : "Todavía no tienes variables personalizadas. Crea una como {municipio} y define sus opciones."));
+ filtered.forEach(function(item) { list.appendChild(variableRowElement(item, data, true)); });
+ } else {
+ const allSources = combinedVariableSources(data);
+ const filtered = allSources.filter(function(item) {
+ const type = String(item.tipo_fuente || "").toUpperCase();
+ const belongs = state.variablesGroup === "company" ? (type === "CONFIG" || type === "USUARIO") : (type === "CRM" || type === "CALCULADA");
+ if (!belongs) return false;
+ if (state.variablesGroup === "crm" && item.technical && !state.variablesShowTechnical) return false;
+ if (!query) return true;
+ return normalized([item.nombre, item.token, item.campo_fuente, item.grupo].join(" ")).includes(query);
+ });
+ filtered.sort(function(a, b) {
+ if (!!a.technical !== !!b.technical) return a.technical ? 1 : -1;
+ if (!!a.habilitada !== !!b.habilitada) return a.habilitada ? -1 : 1;
+ return String(a.nombre || "").localeCompare(String(b.nombre || ""), "es");
+ });
+ if (!filtered.length) list.appendChild(element("div", "variables-empty", "No hay variables con esos filtros."));
+ filtered.forEach(function(item) { list.appendChild(variableRowElement(item, data, false)); });
+ }
+ page.appendChild(list);
+
+ const foot = element("div", "catalog-foot-note");
+ foot.appendChild(element("strong", "", "Cómo funciona: "));
+ foot.appendChild(document.createTextNode("Visible = aparece como botón dentro del editor de plantillas. Oculta = deja de ofrecerse para mensajes nuevos, pero no rompe plantillas que ya la usan. Las variables personalizadas se completan al preparar el WhatsApp."));
+ page.appendChild(foot);
+
+ content.className = "";
+ content.replaceChildren(page);
+ } catch (error) {
+ content.className = "";
+ content.replaceChildren(element("div", "empty-state", "No se pudieron cargar las variables de mensajes."));
+ showError(error.message);
+ reportClientError(error, {accion: "message_variables.list", endpoint: "/api/message-variables"});
  }
  }
 
