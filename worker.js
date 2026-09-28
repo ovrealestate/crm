@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.7.3-followup-tab-explicit
+ * Version: 0.7.4-capi-live-history
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.7.3-followup-tab-explicit";
+const APP_VERSION = "0.7.4-capi-live-history";
 
 
 
@@ -570,6 +570,45 @@ async function routeRequest(request, env) {
  ok: true,
  data: campaignData
  });
+ }
+
+
+ /**
+ * API CAPI STATUS — lectura ligera para sincronización visual
+ */
+ if (
+ url.pathname.startsWith("/api/leads/") &&
+ url.pathname.endsWith("/capi-status") &&
+ method === "GET"
+ ) {
+ const session = await requireSession(request, env);
+ const rawId = url.pathname.substring(
+ "/api/leads/".length,
+ url.pathname.length - "/capi-status".length
+ );
+ const crmLeadId = decodeURIComponent(rawId).trim();
+ if (!crmLeadId) throw publicError(400, "Falta crm_lead_id.");
+
+ const expectedStage = String(url.searchParams.get("stage") || "").trim();
+ if (!expectedStage) throw publicError(400, "Falta la etapa esperada.");
+ const sinceMs = Number(url.searchParams.get("since") || 0);
+
+ const upstream = await callAppsScript(env, session.email, {
+ action: "leads.capi_status",
+ crm_lead_id: crmLeadId,
+ expected_stage: expectedStage,
+ since_ms: Number.isFinite(sinceMs) ? sinceMs : 0
+ });
+
+ const statusData = upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
+
+ if (!statusData || typeof statusData !== "object") {
+ throw publicError(502, "El API no devolvió el estado CAPI del lead.");
+ }
+
+ return jsonResponse({ok: true, data: statusData});
  }
 
 
@@ -4018,6 +4057,44 @@ function renderAppPage() {
  white-space: pre-wrap;
  }
 
+
+ .history-capi-live {
+ border-style: dashed;
+ }
+
+ .history-capi-live.pending {
+ background: #fffaf0;
+ border-color: #e7c979;
+ }
+
+ .history-capi-live.sent {
+ background: #f2fbf5;
+ border-color: #8bc59a;
+ }
+
+ .history-capi-live.error,
+ .history-capi-live.timeout {
+ background: #fff4f3;
+ border-color: #e5a09a;
+ }
+
+ .history-capi-live .history-action::before {
+ content: "● ";
+ }
+
+ .history-capi-live.pending .history-action::before {
+ color: #c58a00;
+ }
+
+ .history-capi-live.sent .history-action::before {
+ color: #168a3d;
+ }
+
+ .history-capi-live.error .history-action::before,
+ .history-capi-live.timeout .history-action::before {
+ color: #c7332b;
+ }
+
  .editable-info-row {
  display: grid;
  grid-template-columns: 132px minmax(0, 1fr) auto;
@@ -5355,7 +5432,8 @@ function renderAppPage() {
  loadingDetailId: "",
  lastHoyLoad: 0,
  lastLeadsLoad: 0,
- lastCampaignLoad: 0
+ lastCampaignLoad: 0,
+ capiMonitorSeq: 0
  };
 
  const VIEW_TITLES = {
@@ -7704,6 +7782,14 @@ function renderAppPage() {
  }
 
  async function saveLeadPatch(lead, crmLeadId, fromView, changes) {
+ const expectedStage = changes && changes.etapa && normalized(changes.etapa) !== normalized(lead.etapa)
+ ? String(changes.etapa)
+ : "";
+ const hasMetaLeadId = !!(lead && lead.adquisicion_meta && lead.adquisicion_meta.lead_id);
+ const capiStages = ["Contactado", "No responde", "Calificado", "Cita agendada", "Compra", "Descartado"];
+ const shouldMonitorCapi = expectedStage && hasMetaLeadId && capiStages.indexOf(expectedStage) !== -1;
+ const capiSinceMs = shouldMonitorCapi ? Date.now() : 0;
+
  await api("/api/leads/" + encodeURIComponent(crmLeadId), {
  method: "PATCH",
  headers: {"Content-Type": "application/json"},
@@ -7714,6 +7800,10 @@ function renderAppPage() {
  state.lastHoyLoad = 0;
  state.lastLeadsLoad = 0;
  await renderLeadDetail(crmLeadId, fromView);
+
+ if (shouldMonitorCapi) {
+ startCapiStatusMonitor(crmLeadId, expectedStage, capiSinceMs);
+ }
  }
 
  function makeDiscardControls(lead, options) {
@@ -8137,6 +8227,146 @@ function renderAppPage() {
  }
 
 
+ function capiLiveItem(expectedStage) {
+ const list = document.getElementById("leadHistoryList");
+ if (!list) return null;
+
+ const existing = document.getElementById("capiLiveStatus");
+ if (existing) existing.remove();
+
+ const item = element("div", "history-item history-capi-live pending");
+ item.id = "capiLiveStatus";
+ item.dataset.expectedStage = expectedStage || "";
+
+ const top = element("div", "history-top");
+ top.appendChild(element("div", "history-action", "CAPI pendiente de confirmación…"));
+ top.appendChild(element("div", "history-date", ""));
+ item.appendChild(top);
+ item.appendChild(
+ element(
+ "div",
+ "history-detail",
+ (expectedStage || "Cambio de etapa") + " · esperando confirmación del Runner / Meta"
+ )
+ );
+
+ list.prepend(item);
+ return item;
+ }
+
+ function setCapiLiveState(item, kind, title, detail, dateText) {
+ if (!item || !item.isConnected) return;
+ item.className = "history-item history-capi-live " + kind;
+ const action = item.querySelector(".history-action");
+ const detailEl = item.querySelector(".history-detail");
+ const dateEl = item.querySelector(".history-date");
+ if (action) action.textContent = title || "CAPI";
+ if (detailEl) detailEl.textContent = detail || "";
+ if (dateEl) dateEl.textContent = dateText || "";
+ }
+
+ async function startCapiStatusMonitor(crmLeadId, expectedStage, sinceMs) {
+ const seq = ++state.capiMonitorSeq;
+ const item = capiLiveItem(expectedStage);
+ if (!item) return;
+
+ const startedAt = Date.now();
+ const timeoutMs = 95 * 1000;
+ let lastError = "";
+
+ while (Date.now() - startedAt < timeoutMs) {
+ await sleep(5000);
+
+ if (seq !== state.capiMonitorSeq) return;
+ const route = parseRoute();
+ if (route.type !== "lead" || route.id !== crmLeadId) return;
+
+ try {
+ const status = await api(
+ "/api/leads/" + encodeURIComponent(crmLeadId) +
+ "/capi-status?stage=" + encodeURIComponent(expectedStage) +
+ "&since=" + encodeURIComponent(String(sinceMs || 0))
+ );
+
+ if (!status || typeof status !== "object") continue;
+
+ if (status.state === "stale" || status.state === "not_applicable") {
+ item.remove();
+ return;
+ }
+
+ if (status.state === "already_sent") {
+ setCapiLiveState(
+ item,
+ "sent",
+ "CAPI ya confirmado previamente",
+ [
+ status.event_name || expectedStage,
+ "Meta",
+ status.http_code ? "HTTP " + status.http_code : "",
+ "No se reenvió por deduplicación"
+ ].filter(Boolean).join(" · "),
+ formatDateValue(status.sent_at, true)
+ );
+ return;
+ }
+
+ if (status.state === "sent") {
+ const eventId = String(status.event_id || "");
+ const duplicate = eventId
+ ? document.querySelector('[data-capi-event-id="' + CSS.escape(eventId) + '"]')
+ : null;
+
+ if (duplicate) {
+ item.remove();
+ duplicate.scrollIntoView({block: "nearest"});
+ return;
+ }
+
+ setCapiLiveState(
+ item,
+ "sent",
+ "CAPI confirmado",
+ [
+ status.event_name || expectedStage,
+ "Meta",
+ status.http_code ? "HTTP " + status.http_code : ""
+ ].filter(Boolean).join(" · "),
+ formatDateValue(status.sent_at, true)
+ );
+ return;
+ }
+
+ if (status.state === "error") {
+ setCapiLiveState(
+ item,
+ "error",
+ "CAPI con error",
+ [
+ status.event_name || expectedStage,
+ status.http_code ? "HTTP " + status.http_code : "",
+ status.last_error || "Revisar Eventos CAPI"
+ ].filter(Boolean).join(" · "),
+ formatDateValue(status.sent_at, true)
+ );
+ return;
+ }
+ } catch (error) {
+ lastError = String(error && error.message ? error.message : error || "");
+ }
+ }
+
+ if (seq !== state.capiMonitorSeq || !item.isConnected) return;
+ setCapiLiveState(
+ item,
+ "timeout",
+ "CAPI pendiente — revisar",
+ lastError || (expectedStage + " · aún no aparece confirmación después de 95 segundos"),
+ ""
+ );
+ }
+
+
  async function renderLeadDetail(
  crmLeadId,
  fromView
@@ -8445,6 +8675,7 @@ function renderAppPage() {
  "div",
  "history-list"
  );
+ historyList.id = "leadHistoryList";
 
  if (
  historial.length
@@ -8459,6 +8690,15 @@ function renderAppPage() {
  "div",
  "history-item"
  );
+
+
+ if (normalized(event.tipo_evento) === "capi") {
+ const fieldText = String(event.campo || "");
+ const matchEventId = fieldText.match(/^event_id:(.+)$/i);
+ if (matchEventId && matchEventId[1]) {
+ item.dataset.capiEventId = matchEventId[1].trim();
+ }
+ }
 
  const top =
  element(
