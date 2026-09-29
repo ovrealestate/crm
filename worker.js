@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.14.1-fast-message-variables
+ * Version: 0.16.1-contacto-inmobiliaria
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.15.0-performance-stable";
+const APP_VERSION = "0.16.1-contacto-inmobiliaria";
 
 
 
@@ -402,11 +402,40 @@ async function routeRequest(request, env) {
  typeof adminData !== "object" ||
  !adminData.templates ||
  !adminData.catalogs ||
- !adminData.variables
+ !adminData.variables ||
+ !adminData.inmobiliaria
  ) {
  throw publicError(502, "El API no devolvió la precarga de administración.");
  }
  return jsonResponse({ok: true, data: adminData});
+ }
+
+ /**
+ * API MI INMOBILIARIA — lectura y actualización de configuración de marca.
+ */
+ if (url.pathname === "/api/inmobiliaria" && method === "GET") {
+ const session = await requireSession(request, env);
+ const upstream = await callAppsScript(env, session.email, {
+ action: "inmobiliaria.get"
+ });
+ const data = upstream && upstream.data !== undefined ? upstream.data : upstream;
+ if (!data || typeof data !== "object" || !data.identidad || !data.contacto) {
+ throw publicError(502, "El API no devolvió la configuración de la inmobiliaria.");
+ }
+ return jsonResponse({ok: true, data: data});
+ }
+
+ if (url.pathname === "/api/inmobiliaria" && method === "PATCH") {
+ requireSameOrigin(request);
+ const session = await requireSession(request, env);
+ let body;
+ try { body = await request.json(); }
+ catch { throw publicError(400, "Solicitud inválida."); }
+ const upstream = await callAppsScript(env, session.email, {
+ action: "inmobiliaria.update",
+ config: body?.config || {}
+ });
+ return jsonResponse({ok: true, data: upstream.data});
  }
 
 
@@ -6412,6 +6441,42 @@ function renderAppPage() {
  .catalog-health { align-items: flex-start; }
  }
 
+ /* ===== Mi inmobiliaria ===== */
+ .realestate-page { display: grid; gap: 16px; }
+ .realestate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+ .realestate-card { border: 1px solid var(--line); border-radius: 17px; background: #fff; padding: 18px; min-width: 0; }
+ .realestate-card.full { grid-column: 1 / -1; }
+ .realestate-card h3 { margin: 0 0 4px; font-size: 16px; }
+ .realestate-card-sub { color: var(--muted); font-size: 11px; line-height: 1.45; margin-bottom: 14px; }
+ .realestate-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+ .realestate-form-grid .wide { grid-column: 1 / -1; }
+ .realestate-logo-layout { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 16px; align-items: start; }
+ .realestate-logo-box { width: 160px; height: 160px; border: 1px dashed #cfcfca; border-radius: 18px; background: #fafaf8; display: grid; place-items: center; overflow: hidden; }
+ .realestate-logo-box img { display: block; max-width: 86%; max-height: 86%; object-fit: contain; }
+ .realestate-logo-placeholder { font-weight: 850; font-size: 27px; letter-spacing: -.05em; color: #222; }
+ .realestate-logo-actions { display: grid; gap: 8px; align-content: start; }
+ .realestate-file-input { width: 100%; font-size: 11px; }
+ .realestate-color-row { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 8px; align-items: center; }
+ .realestate-color-picker { width: 54px; height: 42px; border: 1px solid var(--line); border-radius: 11px; background: #fff; padding: 4px; }
+ .realestate-preview { border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: #fff; }
+ .realestate-preview-head { padding: 20px; background: var(--brand-primary, #111); color: var(--brand-secondary, #fff); display: flex; align-items: center; gap: 14px; }
+ .realestate-preview-logo { width: 54px; height: 54px; border-radius: 13px; background: rgba(255,255,255,.10); display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; }
+ .realestate-preview-logo img { max-width: 88%; max-height: 88%; object-fit: contain; }
+ .realestate-preview-logo span { font-size: 15px; font-weight: 850; }
+ .realestate-preview-name { font-size: 20px; font-weight: 820; line-height: 1.1; }
+ .realestate-preview-tagline { margin-top: 4px; font-size: 11px; opacity: .72; }
+ .realestate-signature { padding: 18px 20px; display: grid; gap: 4px; }
+ .realestate-signature strong { font-size: 14px; }
+ .realestate-signature span { color: #555; font-size: 11px; line-height: 1.4; }
+ .realestate-savebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: sticky; bottom: 84px; z-index: 9; padding: 12px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 10px 28px rgba(0,0,0,.06); }
+ .realestate-savebar .save-status { flex: 1 1 220px; }
+ @media (max-width: 760px) {
+ .realestate-grid, .realestate-form-grid { grid-template-columns: 1fr; }
+ .realestate-card.full, .realestate-form-grid .wide { grid-column: auto; }
+ .realestate-logo-layout { grid-template-columns: 1fr; }
+ .realestate-logo-box { width: 132px; height: 132px; }
+ }
+
  /* ===== Variables de mensajes ===== */
  .variables-page { display: grid; gap: 16px; }
  .variables-explainer {
@@ -6593,6 +6658,7 @@ function renderAppPage() {
  catalogsOptionSearch: "",
  catalogsOptionStatus: "all",
  variablesAdmin: null,
+ inmobiliariaAdmin: null,
  variablesGroup: "crm",
  variablesSearch: "",
  variablesShowTechnical: false,
@@ -7139,6 +7205,10 @@ function renderAppPage() {
  return {type: "variables"};
  }
 
+ if (hash === "#mas/inmobiliaria") {
+ return {type: "inmobiliaria"};
+ }
+
  if (
  hash.startsWith("#lead/")
  ) {
@@ -7213,6 +7283,15 @@ function renderAppPage() {
  document.getElementById("topbarTitle").textContent = "Variables mensajes";
  await renderMessageVariablesAdmin();
  restoreScroll("#mas/variables");
+ return;
+ }
+
+ if (route.type === "inmobiliaria") {
+ setActiveNav("mas");
+ state.currentView = "mas";
+ document.getElementById("topbarTitle").textContent = "Mi inmobiliaria";
+ await renderInmobiliariaAdmin();
+ restoreScroll("#mas/inmobiliaria");
  return;
  }
 
@@ -7365,11 +7444,12 @@ function renderAppPage() {
  }
 
  function persistAdminCache() {
- if (!state.templatesAdmin || !state.catalogsAdmin || !state.variablesAdmin) return;
+ if (!state.templatesAdmin || !state.catalogsAdmin || !state.variablesAdmin || !state.inmobiliariaAdmin) return;
  writeSessionCache("admin", {
  templates: state.templatesAdmin,
  catalogs: state.catalogsAdmin,
- variables: state.variablesAdmin
+ variables: state.variablesAdmin,
+ inmobiliaria: state.inmobiliariaAdmin
  }, state.lastAdminLoad || Date.now());
  }
 
@@ -7384,7 +7464,8 @@ function renderAppPage() {
  if (!state.templatesAdmin && admin.data.templates) state.templatesAdmin = hideLegacyTemplateTypes(admin.data.templates);
  if (!state.catalogsAdmin && admin.data.catalogs) state.catalogsAdmin = admin.data.catalogs;
  if (!state.variablesAdmin && admin.data.variables) state.variablesAdmin = admin.data.variables;
- if (state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin) state.lastAdminLoad = admin.saved_at;
+ if (!state.inmobiliariaAdmin && admin.data.inmobiliaria) state.inmobiliariaAdmin = admin.data.inmobiliaria;
+ if (state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin && state.inmobiliariaAdmin) state.lastAdminLoad = admin.saved_at;
  }
 
  const campaigns = readSessionCache("campaigns", CAMPAIGN_HARD_TTL_MS);
@@ -7399,15 +7480,16 @@ function renderAppPage() {
  if (data.templates && typeof data.templates === "object") state.templatesAdmin = hideLegacyTemplateTypes(data.templates);
  if (data.catalogs && typeof data.catalogs === "object") state.catalogsAdmin = data.catalogs;
  if (data.variables && typeof data.variables === "object") state.variablesAdmin = data.variables;
+ if (data.inmobiliaria && typeof data.inmobiliaria === "object") state.inmobiliariaAdmin = data.inmobiliaria;
  state.lastAdminLoad = Date.now();
  persistAdminCache();
  return data;
  }
 
  async function loadAdminBootstrap(force) {
- if (!force && state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin) {
+ if (!force && state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin && state.inmobiliariaAdmin) {
  if (!state.lastAdminLoad || Date.now() - state.lastAdminLoad > ADMIN_SOFT_TTL_MS) refreshAdminBootstrapInBackground();
- return {templates: state.templatesAdmin, catalogs: state.catalogsAdmin, variables: state.variablesAdmin};
+ return {templates: state.templatesAdmin, catalogs: state.catalogsAdmin, variables: state.variablesAdmin, inmobiliaria: state.inmobiliariaAdmin};
  }
  if (adminBootstrapPromise) return adminBootstrapPromise;
  adminBootstrapPromise = api("/api/admin-bootstrap")
@@ -7432,6 +7514,7 @@ function renderAppPage() {
  if (route.type === "templates") await renderTemplatesAdmin(true);
  else if (route.type === "catalogs") await renderCatalogsAdmin(true);
  else if (route.type === "variables") await renderMessageVariablesAdmin(true);
+ else if (route.type === "inmobiliaria") await renderInmobiliariaAdmin(true);
  } catch (error) {
  reportClientError(error, {accion: "admin.background.refresh", endpoint: "/api/admin-bootstrap"});
  } finally {
@@ -7441,7 +7524,7 @@ function renderAppPage() {
 
  function prefetchAdminViews() {
  const work = function() {
- if (state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin && state.lastAdminLoad && Date.now() - state.lastAdminLoad < ADMIN_SOFT_TTL_MS) return;
+ if (state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin && state.inmobiliariaAdmin && state.lastAdminLoad && Date.now() - state.lastAdminLoad < ADMIN_SOFT_TTL_MS) return;
  loadAdminBootstrap(false).catch(function(error) {
  reportClientError(error, {accion: "admin.prefetch", endpoint: "/api/admin-bootstrap"});
  });
@@ -9328,9 +9411,13 @@ function renderAppPage() {
  }
 
  function isConfirmedMessageEvent(event) {
- return normalized(event && event.tipo_evento) === "mensaje" &&
- normalized(event && event.canal) === "whatsapp" &&
- normalized(event && event.resultado) === "confirmado_usuario";
+ const type = normalized(event && event.tipo_evento);
+ const result = normalized(event && event.resultado);
+ const channel = normalized(event && event.canal);
+ const isSentMessage = type === "mensaje" && result === "confirmado_usuario" && channel === "whatsapp";
+ const isRecordedConversation = type === "contacto_registrado" && result === "registrado_usuario" &&
+ ["whatsapp", "llamada"].indexOf(channel) !== -1;
+ return isSentMessage || isRecordedConversation;
  }
 
  function contactAttemptCount(historial, lead) {
@@ -9743,6 +9830,12 @@ function renderAppPage() {
  values["{fecha_cita}"] = lead && lead.fecha_cita ? formatDateValue(lead.fecha_cita, true) : "";
  values["{inmobiliaria}"] = String(me.inmobiliaria || "OV Real Estate");
  values["{asesor}"] = firstNameForMessage(user.nombre || user.correo || "");
+ const company = state.inmobiliariaAdmin;
+ if (company && company.values && typeof company.values === "object") {
+ Object.keys(company.values).forEach(function(key) {
+ values["{" + key + "}"] = company.values[key] == null ? "" : String(company.values[key]);
+ });
+ }
  return values;
  }
 
@@ -9863,12 +9956,19 @@ function renderAppPage() {
  root.appendChild(element("div", "form-label", opts.title || "WhatsApp / Mensaje"));
 
  const mode = element("select", "form-control");
- [["TEMPLATE", "Usar plantilla"], ["CUSTOM", "Mensaje personalizado"]].forEach(function(item) {
+ const modeOptions = [["TEMPLATE", "Usar plantilla"], ["CUSTOM", "Mensaje personalizado"]];
+ if (opts.allowContactNote === true) {
+ modeOptions.push(["NOTE", "Registrar conversación"]);
+ }
+ modeOptions.forEach(function(item) {
  const option = element("option", "", item[1]);
  option.value = item[0];
  mode.appendChild(option);
  });
- root.appendChild(popoverField("Cómo quieres preparar el mensaje", mode));
+ root.appendChild(popoverField(
+ opts.allowContactNote === true ? "Qué quieres hacer con este contacto" : "Cómo quieres preparar el mensaje",
+ mode
+ ));
 
  const templateSelect = element("select", "form-control");
  const templateField = popoverField("Plantilla", templateSelect);
@@ -9884,6 +9984,7 @@ function renderAppPage() {
  const message = element("textarea", "form-control form-textarea");
  message.placeholder = "Puedes editar el texto aquí. Si prefieres escribir directamente en WhatsApp, déjalo en blanco.";
  const messageField = popoverField("Mensaje", message);
+ const messageFieldLabel = messageField.querySelector(".form-label");
  root.appendChild(messageField);
 
  const helper = element("div", "popover-help", "La plantilla solo prepara el texto. Puedes modificarlo antes de abrir WhatsApp.");
@@ -10041,8 +10142,30 @@ function renderAppPage() {
 
  function syncMode() {
  const usingTemplate = mode.value === "TEMPLATE";
+ const recordingConversation = mode.value === "NOTE";
+
  templateField.style.display = usingTemplate ? "grid" : "none";
  customResolver.classList.toggle("visible", usingTemplate && currentCustomVariables.length > 0);
+ row.style.display = recordingConversation ? "none" : "flex";
+ sentLabel.style.display = recordingConversation ? "none" : "flex";
+ messageField.style.display = "grid";
+ status.textContent = "";
+ status.className = "save-status";
+
+ if (recordingConversation) {
+ currentCustomVariables = [];
+ customValues = {};
+ message.disabled = false;
+ messageFieldLabel.textContent = "Resumen de la conversación";
+ message.placeholder = "Ej. Me pidió disponibilidad de 2 recámaras. Le envié brochure y precios. Quedó de revisarlo y darle seguimiento el jueves.";
+ helper.textContent = "Solo se guardará este resumen en el historial del lead. No se abrirá WhatsApp ni se enviará ningún mensaje.";
+ sent.checked = false;
+ return;
+ }
+
+ messageFieldLabel.textContent = "Mensaje";
+ message.placeholder = "Puedes editar el texto aquí. Si prefieres escribir directamente en WhatsApp, déjalo en blanco.";
+
  if (!usingTemplate) {
  currentCustomVariables = [];
  customValues = {};
@@ -10055,6 +10178,9 @@ function renderAppPage() {
  }
 
  mode.addEventListener("change", function() {
+ // Evita que el texto de una plantilla termine guardado como resumen de conversación
+ // (o viceversa) al cambiar de modo.
+ message.value = "";
  syncMode();
  if (mode.value === "TEMPLATE") ensureLoaded().catch(function() {});
  });
@@ -10064,6 +10190,7 @@ function renderAppPage() {
  status.className = "save-status";
  status.textContent = "";
  try {
+ if (mode.value === "NOTE") return;
  if (mode.value === "TEMPLATE") {
  await ensureLoaded();
  if (!templateSelect.value) throw new Error("Seleccione una plantilla o cambie a Mensaje personalizado.");
@@ -10090,6 +10217,12 @@ function renderAppPage() {
  },
  ensureLoaded: ensureLoaded,
  validateSent: function() {
+ if (mode.value === "NOTE") {
+ if (!String(message.value || "").trim()) {
+ throw new Error("Escriba un resumen de la conversación antes de guardar Contactado.");
+ }
+ return;
+ }
  if (mode.value === "TEMPLATE" && !templateSelect.value) {
  throw new Error("Seleccione una plantilla o cambie a Mensaje personalizado.");
  }
@@ -10100,6 +10233,14 @@ function renderAppPage() {
  if (!sent.checked) throw new Error("Confirme que envió el mensaje por WhatsApp antes de guardar Contactado.");
  },
  messageContext: function() {
+ if (mode.value === "NOTE") {
+ return {
+ recorded_contact: true,
+ channel: "WHATSAPP",
+ mode: "NOTE",
+ message: String(message.value || "").trim()
+ };
+ }
  if (!sent.checked) return null;
  const template = mode.value === "TEMPLATE" ? selectedTemplate() : null;
  const templateId = mode.value === "TEMPLATE" ? String(templateSelect.value || "") : "";
@@ -10162,11 +10303,23 @@ function renderAppPage() {
  contactChannel.appendChild(option);
  });
  contactBox.appendChild(popoverField("Cómo se realizó el contacto", contactChannel));
- contactBox.appendChild(element("div", "popover-help", "Si fue WhatsApp / Mensaje, podrás usar una plantilla o escribir algo personal antes de guardar Contactado."));
+ contactBox.appendChild(element("div", "popover-help", "Si fue WhatsApp / Mensaje, puedes enviar un mensaje desde el CRM o registrar una conversación que ya ocurrió."));
  contactBox.style.display = "none";
  pop.body.appendChild(contactBox);
- const contactComposer = createWhatsAppComposer(lead, {title: "Mensaje de contacto"});
+ const contactComposer = createWhatsAppComposer(lead, {
+ title: "Contacto por WhatsApp",
+ allowContactNote: true
+ });
  pop.body.appendChild(contactComposer.root);
+
+ const callNoteBox = element("div", "confirm-box");
+ const callNote = element("textarea", "form-control form-textarea");
+ callNote.rows = 4;
+ callNote.placeholder = "Ej. Hablamos sobre opciones de 2 recámaras. Le interesó la tipología B. Quedó de revisar números y hablar con su esposa.";
+ callNoteBox.appendChild(popoverField("Resumen de la llamada (opcional)", callNote));
+ callNoteBox.appendChild(element("div", "popover-help", "Si ya hablaron, puedes dejar aquí acuerdos, qué pidió el cliente y qué información le compartiste."));
+ callNoteBox.style.display = "none";
+ pop.body.appendChild(callNoteBox);
 
  const discard = makeDiscardControls(lead, options);
  pop.body.appendChild(discard.box);
@@ -10288,8 +10441,11 @@ function renderAppPage() {
 
  const syncContactChannel = function() {
  const isContactado = normalized(select.value) === "contactado";
- const isWhatsApp = normalized(contactChannel.value).indexOf("whatsapp") !== -1;
+ const channel = normalized(contactChannel.value);
+ const isWhatsApp = channel.indexOf("whatsapp") !== -1;
+ const isCall = channel === "llamada";
  contactComposer.show(isContactado && isWhatsApp, templateTypesForContact(lead, historial));
+ callNoteBox.style.display = isContactado && isCall ? "grid" : "none";
  };
  contactChannel.addEventListener("change", syncContactChannel);
 
@@ -10316,9 +10472,17 @@ function renderAppPage() {
  let messageContext = null;
  if (stage === "contactado") {
  if (!contactChannel.value) throw new Error("Seleccione si el contacto se realizó por WhatsApp / Mensaje o Llamada.");
- if (normalized(contactChannel.value).indexOf("whatsapp") !== -1) {
+ const contactChannelNormalized = normalized(contactChannel.value);
+ if (contactChannelNormalized.indexOf("whatsapp") !== -1) {
  contactComposer.validateSent();
  messageContext = contactComposer.messageContext();
+ } else if (contactChannelNormalized === "llamada" && String(callNote.value || "").trim()) {
+ messageContext = {
+ recorded_contact: true,
+ channel: "LLAMADA",
+ mode: "NOTE",
+ message: String(callNote.value || "").trim()
+ };
  }
  }
  if (stage === "descartado") {
@@ -12418,9 +12582,10 @@ function renderAppPage() {
  },
  {
  title: "Mi inmobiliaria",
- text: "Configuración general de OV Real Estate.",
- action: "Próximamente",
- enabled: false
+ text: "Administra nombre, logo, contacto, responsable y apariencia de tu marca.",
+ action: "Configurar inmobiliaria →",
+ enabled: true,
+ onClick: function() { navigate("mas/inmobiliaria"); }
  },
  {
  title: "Usuarios",
@@ -12456,6 +12621,363 @@ function renderAppPage() {
  });
 
  content.appendChild(grid);
+ }
+
+ function companyValue(data, key, fallback) {
+ const values = data && data.values && typeof data.values === "object" ? data.values : {};
+ const value = values[key];
+ return value === undefined || value === null || value === "" ? String(fallback || "") : String(value);
+ }
+
+ function normalizeHexColorClient(value, fallback) {
+ const text = String(value || "").trim();
+ if (/^#[0-9a-f]{6}$/i.test(text)) return text.toUpperCase();
+ return String(fallback || "#111111").toUpperCase();
+ }
+
+ function companyInitials(value) {
+ const parts = String(value || "OV").trim().split(/\s+/).filter(Boolean);
+ return parts.slice(0, 2).map(function(part) { return part.charAt(0).toUpperCase(); }).join("") || "OV";
+ }
+
+ function logoDataUrlFromFile(file) {
+ return new Promise(function(resolve, reject) {
+ if (!file) { resolve(""); return; }
+ if (!String(file.type || "").startsWith("image/")) {
+ reject(new Error("Selecciona una imagen válida para el logo."));
+ return;
+ }
+ if (Number(file.size || 0) > 8 * 1024 * 1024) {
+ reject(new Error("El archivo del logo es demasiado grande. Máximo 8 MB."));
+ return;
+ }
+ const imageUrl = URL.createObjectURL(file);
+ const img = new Image();
+ img.onload = function() {
+ try {
+ const maxSide = 420;
+ const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+ const width = Math.max(1, Math.round((img.naturalWidth || 1) * scale));
+ const height = Math.max(1, Math.round((img.naturalHeight || 1) * scale));
+ const canvas = document.createElement("canvas");
+ canvas.width = width;
+ canvas.height = height;
+ const ctx = canvas.getContext("2d");
+ ctx.clearRect(0, 0, width, height);
+ ctx.drawImage(img, 0, 0, width, height);
+ let dataUrl = canvas.toDataURL("image/webp", .88);
+ if (dataUrl.length > 44000) {
+ const compactScale = Math.min(1, 280 / Math.max(width, height));
+ const compact = document.createElement("canvas");
+ compact.width = Math.max(1, Math.round(width * compactScale));
+ compact.height = Math.max(1, Math.round(height * compactScale));
+ const compactCtx = compact.getContext("2d");
+ compactCtx.clearRect(0, 0, compact.width, compact.height);
+ compactCtx.drawImage(canvas, 0, 0, compact.width, compact.height);
+ dataUrl = compact.toDataURL("image/webp", .72);
+ }
+ URL.revokeObjectURL(imageUrl);
+ if (dataUrl.length > 48000) {
+ reject(new Error("No se pudo comprimir el logo lo suficiente. Usa una imagen más simple o pequeña."));
+ return;
+ }
+ resolve(dataUrl);
+ } catch (error) {
+ URL.revokeObjectURL(imageUrl);
+ reject(error);
+ }
+ };
+ img.onerror = function() {
+ URL.revokeObjectURL(imageUrl);
+ reject(new Error("No se pudo leer la imagen del logo."));
+ };
+ img.src = imageUrl;
+ });
+ }
+
+ async function loadInmobiliariaAdmin(force) {
+ if (!force && state.inmobiliariaAdmin) {
+ if (!state.lastAdminLoad || Date.now() - state.lastAdminLoad > ADMIN_SOFT_TTL_MS) refreshAdminBootstrapInBackground();
+ return state.inmobiliariaAdmin;
+ }
+ const data = await api("/api/inmobiliaria");
+ state.inmobiliariaAdmin = data;
+ state.lastAdminLoad = Date.now();
+ persistAdminCache();
+ return data;
+ }
+
+ async function renderInmobiliariaAdmin(fromStateOnly) {
+ const content = clearContent();
+ if (!fromStateOnly || !state.inmobiliariaAdmin) {
+ content.className = "loading";
+ content.textContent = "Cargando inmobiliaria…";
+ }
+
+ try {
+ const data = await loadInmobiliariaAdmin(false);
+ const canEdit = !!data.can_edit;
+ const page = element("div", "realestate-page");
+
+ const toolbar = element("div", "templates-toolbar");
+ const back = element("button", "templates-back", "← Más");
+ back.type = "button";
+ back.addEventListener("click", function() { navigate("mas"); });
+ toolbar.appendChild(back);
+ const reload = element("button", "secondary-button", "Actualizar");
+ reload.type = "button";
+ reload.addEventListener("click", async function() {
+ reload.disabled = true;
+ try {
+ await loadInmobiliariaAdmin(true);
+ await renderInmobiliariaAdmin(true);
+ } catch (error) {
+ showError(error.message || "No se pudo actualizar la configuración.");
+ } finally { reload.disabled = false; }
+ });
+ toolbar.appendChild(reload);
+ page.appendChild(toolbar);
+ page.appendChild(createHero("Configuración", "Mi inmobiliaria", "Datos centrales de marca y contacto para el CRM."));
+
+ const grid = element("div", "realestate-grid");
+ const controls = {};
+ function inputField(key, label, placeholder, type, wide) {
+ const wrap = element("div", "form-field" + (wide ? " wide" : ""));
+ wrap.appendChild(element("label", "form-label", label));
+ const input = element("input", "form-control");
+ input.type = type || "text";
+ input.placeholder = placeholder || "";
+ input.value = companyValue(data, key, "");
+ input.disabled = !canEdit;
+ controls[key] = input;
+ wrap.appendChild(input);
+ return wrap;
+ }
+
+ const identity = element("section", "realestate-card");
+ identity.appendChild(element("h3", "", "Identidad"));
+ identity.appendChild(element("div", "realestate-card-sub", "Nombre y presentación principal de tu inmobiliaria."));
+ const identityForm = element("div", "realestate-form-grid");
+ identityForm.appendChild(inputField("inmobiliaria_nombre", "Nombre comercial", "OV Real Estate", "text", false));
+ identityForm.appendChild(inputField("inmobiliaria_nombre_corto", "Nombre corto", "OV", "text", false));
+ identityForm.appendChild(inputField("inmobiliaria_eslogan", "Eslogan / descripción corta", "Asesoría inmobiliaria…", "text", true));
+ identity.appendChild(identityForm);
+ grid.appendChild(identity);
+
+ const logoCard = element("section", "realestate-card");
+ logoCard.appendChild(element("h3", "", "Logo"));
+ logoCard.appendChild(element("div", "realestate-card-sub", "Se comprime automáticamente para mantener rápida la App."));
+ const logoLayout = element("div", "realestate-logo-layout");
+ const logoBox = element("div", "realestate-logo-box");
+ let logoValue = companyValue(data, "inmobiliaria_logo", "");
+ function paintLogo() {
+ logoBox.replaceChildren();
+ if (logoValue) {
+ const img = element("img");
+ img.alt = "Logo inmobiliaria";
+ img.src = logoValue;
+ logoBox.appendChild(img);
+ } else {
+ logoBox.appendChild(element("div", "realestate-logo-placeholder", companyInitials(controls.inmobiliaria_nombre ? controls.inmobiliaria_nombre.value : companyValue(data, "inmobiliaria_nombre", "OV"))));
+ }
+ }
+ paintLogo();
+ const logoActions = element("div", "realestate-logo-actions");
+ const file = element("input", "realestate-file-input");
+ file.type = "file";
+ file.accept = "image/png,image/jpeg,image/webp,image/svg+xml";
+ file.disabled = !canEdit;
+ file.addEventListener("change", async function() {
+ if (!file.files || !file.files[0]) return;
+ file.disabled = true;
+ try {
+ logoValue = await logoDataUrlFromFile(file.files[0]);
+ paintLogo();
+ removeLogo.disabled = !canEdit || !logoValue;
+ updateCompanyPreview();
+ } catch (error) {
+ showError(error.message || "No se pudo preparar el logo.");
+ } finally { file.disabled = !canEdit; }
+ });
+ logoActions.appendChild(file);
+ const removeLogo = element("button", "secondary-button", "Quitar logo");
+ removeLogo.type = "button";
+ removeLogo.disabled = !canEdit || !logoValue;
+ removeLogo.addEventListener("click", function() {
+ logoValue = "";
+ file.value = "";
+ removeLogo.disabled = true;
+ paintLogo();
+ updateCompanyPreview();
+ });
+ logoActions.appendChild(removeLogo);
+ logoActions.appendChild(element("div", "popover-help", "PNG, JPG, WebP o SVG. La App guarda una versión optimizada, no el archivo original."));
+ logoLayout.append(logoBox, logoActions);
+ logoCard.appendChild(logoLayout);
+ grid.appendChild(logoCard);
+
+ const responsible = element("section", "realestate-card");
+ responsible.appendChild(element("h3", "", "Responsable"));
+ responsible.appendChild(element("div", "realestate-card-sub", "Nombre y cargo que pueden aparecer en firmas y documentos."));
+ const responsibleForm = element("div", "realestate-form-grid");
+ responsibleForm.appendChild(inputField("responsable_nombre", "Nombre", "Nombre del asesor", "text", false));
+ responsibleForm.appendChild(inputField("responsable_puesto", "Puesto", "Asesor inmobiliario", "text", false));
+ responsible.appendChild(responsibleForm);
+ grid.appendChild(responsible);
+
+ const contact = element("section", "realestate-card");
+ contact.appendChild(element("h3", "", "Contacto"));
+ contact.appendChild(element("div", "realestate-card-sub", "Datos comerciales reutilizables en mensajes y documentos."));
+ const contactForm = element("div", "realestate-form-grid");
+ contactForm.appendChild(inputField("inmobiliaria_telefono", "Teléfono", "+52 81…", "tel", false));
+ contactForm.appendChild(inputField("inmobiliaria_whatsapp", "WhatsApp", "+52 81…", "tel", false));
+ contactForm.appendChild(inputField("inmobiliaria_correo", "Correo", "correo@dominio.com", "email", false));
+ contactForm.appendChild(inputField("inmobiliaria_web", "Sitio web", "https://…", "url", false));
+ contactForm.appendChild(inputField("inmobiliaria_instagram", "Instagram", "@usuario", "text", false));
+ contactForm.appendChild(inputField("inmobiliaria_ciudad", "Ciudad / zona", "Monterrey, N.L.", "text", false));
+ contact.appendChild(contactForm);
+ grid.appendChild(contact);
+
+ const appearance = element("section", "realestate-card");
+ appearance.appendChild(element("h3", "", "Apariencia"));
+ appearance.appendChild(element("div", "realestate-card-sub", "Colores base para futuras fichas, PDFs y elementos de marca."));
+ const appearanceForm = element("div", "realestate-form-grid");
+ function colorField(key, label, fallback) {
+ const wrap = element("div", "form-field");
+ wrap.appendChild(element("label", "form-label", label));
+ const row = element("div", "realestate-color-row");
+ const picker = element("input", "realestate-color-picker");
+ picker.type = "color";
+ picker.value = normalizeHexColorClient(companyValue(data, key, fallback), fallback).toLowerCase();
+ picker.disabled = !canEdit;
+ const textInput = element("input", "form-control");
+ textInput.type = "text";
+ textInput.maxLength = 7;
+ textInput.value = normalizeHexColorClient(companyValue(data, key, fallback), fallback);
+ textInput.disabled = !canEdit;
+ controls[key] = textInput;
+ picker.addEventListener("input", function() { textInput.value = picker.value.toUpperCase(); updateCompanyPreview(); });
+ textInput.addEventListener("input", function() {
+ if (/^#[0-9a-f]{6}$/i.test(textInput.value.trim())) picker.value = textInput.value.trim().toLowerCase();
+ updateCompanyPreview();
+ });
+ row.append(picker, textInput);
+ wrap.appendChild(row);
+ return wrap;
+ }
+ appearanceForm.appendChild(colorField("inmobiliaria_color_primario", "Color principal", "#111111"));
+ appearanceForm.appendChild(colorField("inmobiliaria_color_secundario", "Color secundario", "#FFFFFF"));
+ appearance.appendChild(appearanceForm);
+ grid.appendChild(appearance);
+
+ const previewCard = element("section", "realestate-card full");
+ previewCard.appendChild(element("h3", "", "Vista previa"));
+ previewCard.appendChild(element("div", "realestate-card-sub", "Referencia rápida de marca y firma comercial."));
+ const preview = element("div", "realestate-preview");
+ const previewHead = element("div", "realestate-preview-head");
+ const previewLogo = element("div", "realestate-preview-logo");
+ const previewTitle = element("div");
+ const previewName = element("div", "realestate-preview-name");
+ const previewTagline = element("div", "realestate-preview-tagline");
+ previewTitle.append(previewName, previewTagline);
+ previewHead.append(previewLogo, previewTitle);
+ const signature = element("div", "realestate-signature");
+ preview.append(previewHead, signature);
+ previewCard.appendChild(preview);
+ grid.appendChild(previewCard);
+ page.appendChild(grid);
+
+ function updateCompanyPreview() {
+ const companyName = controls.inmobiliaria_nombre ? controls.inmobiliaria_nombre.value.trim() : "";
+ const shortName = controls.inmobiliaria_nombre_corto ? controls.inmobiliaria_nombre_corto.value.trim() : "";
+ const tagline = controls.inmobiliaria_eslogan ? controls.inmobiliaria_eslogan.value.trim() : "";
+ const primary = normalizeHexColorClient(controls.inmobiliaria_color_primario ? controls.inmobiliaria_color_primario.value : "", "#111111");
+ const secondary = normalizeHexColorClient(controls.inmobiliaria_color_secundario ? controls.inmobiliaria_color_secundario.value : "", "#FFFFFF");
+ previewHead.style.setProperty("--brand-primary", primary);
+ previewHead.style.setProperty("--brand-secondary", secondary);
+ previewName.textContent = companyName || "Tu inmobiliaria";
+ previewTagline.textContent = tagline || shortName || "Marca inmobiliaria";
+ previewLogo.replaceChildren();
+ if (logoValue) {
+ const img = element("img");
+ img.alt = "Logo";
+ img.src = logoValue;
+ previewLogo.appendChild(img);
+ } else {
+ previewLogo.appendChild(element("span", "", companyInitials(shortName || companyName || "OV")));
+ }
+ signature.replaceChildren();
+ const responsibleName = controls.responsable_nombre ? controls.responsable_nombre.value.trim() : "";
+ const role = controls.responsable_puesto ? controls.responsable_puesto.value.trim() : "";
+ const phone = controls.inmobiliaria_whatsapp ? controls.inmobiliaria_whatsapp.value.trim() : "";
+ const email = controls.inmobiliaria_correo ? controls.inmobiliaria_correo.value.trim() : "";
+ const web = controls.inmobiliaria_web ? controls.inmobiliaria_web.value.trim() : "";
+ signature.appendChild(element("strong", "", responsibleName || companyName || "Responsable"));
+ [role, companyName, phone, email, web].filter(Boolean).forEach(function(line) {
+ signature.appendChild(element("span", "", line));
+ });
+ }
+
+ Object.keys(controls).forEach(function(key) {
+ const control = controls[key];
+ if (control && control.addEventListener) control.addEventListener("input", updateCompanyPreview);
+ });
+ updateCompanyPreview();
+
+ const saveBar = element("div", "realestate-savebar");
+ const save = element("button", "save-button", canEdit ? "Guardar cambios" : "Solo lectura");
+ save.type = "button";
+ save.disabled = !canEdit;
+ const status = element("div", "save-status", canEdit ? "Los cambios quedan centralizados en Config App." : "Solo los administradores pueden editar esta sección.");
+ saveBar.append(save, status);
+ page.appendChild(saveBar);
+
+ save.addEventListener("click", async function() {
+ if (!canEdit) return;
+ const payload = {};
+ Object.keys(controls).forEach(function(key) { payload[key] = controls[key].value.trim(); });
+ payload.inmobiliaria_logo = logoValue;
+ if (!payload.inmobiliaria_nombre) {
+ controls.inmobiliaria_nombre.focus();
+ showError("Captura el nombre comercial de la inmobiliaria.");
+ return;
+ }
+ save.disabled = true;
+ status.className = "save-status";
+ status.textContent = "Guardando…";
+ showError("");
+ try {
+ const result = await api("/api/inmobiliaria", {
+ method: "PATCH",
+ headers: {"Content-Type": "application/json"},
+ body: JSON.stringify({config: payload})
+ });
+ const saved = result && result.inmobiliaria ? result.inmobiliaria : result;
+ if (!saved || typeof saved !== "object") throw new Error("El servidor no confirmó la configuración.");
+ state.inmobiliariaAdmin = saved;
+ state.lastAdminLoad = Date.now();
+ if (state.me) state.me.inmobiliaria = companyValue(saved, "inmobiliaria_nombre", "OV Real Estate");
+ persistAdminCache();
+ status.className = "save-status ok";
+ status.textContent = "Guardado.";
+ setTimeout(function() { if (status.textContent === "Guardado.") status.textContent = "Los cambios quedan centralizados en Config App."; }, 1800);
+ } catch (error) {
+ status.className = "save-status error";
+ status.textContent = error.message || "No se pudo guardar.";
+ showError(error.message || "No se pudo guardar la inmobiliaria.");
+ } finally {
+ save.disabled = !canEdit;
+ }
+ });
+
+ content.className = "";
+ content.replaceChildren(page);
+ } catch (error) {
+ content.className = "";
+ content.replaceChildren(element("div", "empty-state", "No se pudo cargar Mi inmobiliaria."));
+ showError(error.message);
+ reportClientError(error, {accion: "inmobiliaria.get", endpoint: "/api/inmobiliaria"});
+ }
  }
 
  function templateTypeLabel(code, data) {
