@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.16.1-contacto-inmobiliaria
+ * Version: 0.16.2-branding-shell-login
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.16.1-contacto-inmobiliaria";
+const APP_VERSION = "0.16.2-branding-shell-login";
 
 
 
@@ -249,6 +249,27 @@ async function routeRequest(request, env) {
  );
 
  }
+
+ /**
+ * PUBLIC BRAND — solo identidad visual no sensible para el login.
+ * No requiere sesión; Apps Script sigue protegido por el secreto Worker → API.
+ */
+ if (
+ url.pathname === "/api/public-brand" &&
+ method === "GET"
+ ) {
+ const upstream = await callAppsScript(env, "", {
+ action: "inmobiliaria.public"
+ });
+ const brandData = upstream && upstream.data !== undefined ? upstream.data : upstream;
+ if (!brandData || typeof brandData !== "object") {
+ throw publicError(502, "El API no devolvió la identidad visual.");
+ }
+ return jsonResponse({ok: true, data: brandData}, 200, {
+ "Cache-Control": "public, max-age=60, stale-while-revalidate=300"
+ });
+ }
+
 
 
 
@@ -3263,6 +3284,16 @@ function renderLoginPage(
 
  }
 
+ .login-mark img {
+ display: none;
+ max-width: 82%;
+ max-height: 82%;
+ object-fit: contain;
+ }
+
+ .login-mark.has-logo img { display: block; }
+ .login-mark.has-logo span { display: none; }
+
 
 
  .brand {
@@ -3367,13 +3398,9 @@ function renderLoginPage(
 
  <main class="card">
 
- <div class="login-mark">OV</div>
+ <div class="login-mark" id="loginBrandMark"><img id="loginBrandLogo" alt=""><span id="loginBrandFallback">OV</span></div>
 
- <div class="brand">
-
- OV Real Estate
-
- </div>
+ <div class="brand" id="loginBrandName">OV Real Estate</div>
 
 
 
@@ -3411,6 +3438,69 @@ function renderLoginPage(
 
 
 
+
+
+ const PUBLIC_BRAND_CACHE_KEY = "ovcrm:public-brand:v1";
+
+ function loginBrandInitials(value) {
+ const parts = String(value || "OV").trim().split(/\s+/).filter(Boolean);
+ return parts.slice(0, 2).map(function(part) { return part.charAt(0).toUpperCase(); }).join("") || "OV";
+ }
+
+ function applyLoginBrand(brand) {
+ if (!brand || typeof brand !== "object") return;
+ const name = String(brand.nombre_comercial || "OV Real Estate").trim() || "OV Real Estate";
+ const shortName = String(brand.nombre_corto || "").trim();
+ const logo = String(brand.logo || "").trim();
+ const mark = document.getElementById("loginBrandMark");
+ const image = document.getElementById("loginBrandLogo");
+ const fallback = document.getElementById("loginBrandFallback");
+ const nameEl = document.getElementById("loginBrandName");
+ if (nameEl) nameEl.textContent = name;
+ document.title = name + " CRM";
+ if (fallback) fallback.textContent = loginBrandInitials(shortName || name);
+ if (mark && image) {
+ if (logo) {
+ image.src = logo;
+ image.alt = "Logo " + name;
+ image.onload = function() { mark.classList.add("has-logo"); };
+ image.onerror = function() { mark.classList.remove("has-logo"); image.removeAttribute("src"); };
+ } else {
+ mark.classList.remove("has-logo");
+ image.removeAttribute("src");
+ }
+ }
+ }
+
+ function readCachedLoginBrand() {
+ try {
+ const raw = localStorage.getItem(PUBLIC_BRAND_CACHE_KEY);
+ if (!raw) return null;
+ const parsed = JSON.parse(raw);
+ return parsed && parsed.data ? parsed.data : null;
+ } catch (_) {
+ return null;
+ }
+ }
+
+ function cacheLoginBrand(brand) {
+ try {
+ localStorage.setItem(PUBLIC_BRAND_CACHE_KEY, JSON.stringify({saved_at: Date.now(), data: brand}));
+ } catch (_) {}
+ }
+
+ async function loadPublicBrandForLogin() {
+ const cached = readCachedLoginBrand();
+ if (cached) applyLoginBrand(cached);
+ try {
+ const response = await fetch("/api/public-brand", {cache: "no-store"});
+ const payload = await response.json();
+ if (response.ok && payload && payload.ok && payload.data) {
+ applyLoginBrand(payload.data);
+ cacheLoginBrand(payload.data);
+ }
+ } catch (_) {}
+ }
 
 
  function showError(message) {
@@ -3546,6 +3636,8 @@ function renderLoginPage(
  "load",
 
  function() {
+
+ loadPublicBrandForLogin();
 
 
 
@@ -3769,12 +3861,46 @@ function renderAppPage() {
 
  .brand-wrap {
  padding: 4px 10px 24px;
+ display: flex;
+ align-items: center;
+ gap: 11px;
+ min-width: 0;
  }
 
+ .shell-brand-mark {
+ width: 42px;
+ height: 42px;
+ flex: 0 0 42px;
+ border-radius: 12px;
+ display: grid;
+ place-items: center;
+ overflow: hidden;
+ background: #fff;
+ color: #111;
+ border: 1px solid rgba(255,255,255,.16);
+ font-size: 12px;
+ font-weight: 850;
+ letter-spacing: -.04em;
+ }
+
+ .shell-brand-mark img {
+ display: none;
+ max-width: 82%;
+ max-height: 82%;
+ object-fit: contain;
+ }
+
+ .shell-brand-mark.has-logo img { display: block; }
+ .shell-brand-mark.has-logo span { display: none; }
+ .brand-copy { min-width: 0; }
+
  .brand {
- font-size: 21px;
+ font-size: 18px;
  font-weight: 780;
  letter-spacing: -.45px;
+ line-height: 1.12;
+ overflow: hidden;
+ text-overflow: ellipsis;
  }
 
  .brand-sub {
@@ -3877,6 +4003,39 @@ function renderAppPage() {
  font-weight: 780;
  letter-spacing: -.4px;
  }
+
+ .topbar-start {
+ display: flex;
+ align-items: center;
+ gap: 10px;
+ min-width: 0;
+ }
+
+ .mobile-brand-mark {
+ display: none;
+ width: 32px;
+ height: 32px;
+ flex: 0 0 32px;
+ border-radius: 9px;
+ place-items: center;
+ overflow: hidden;
+ background: #111;
+ color: #fff;
+ border: 1px solid rgba(0,0,0,.08);
+ font-size: 10px;
+ font-weight: 850;
+ letter-spacing: -.04em;
+ }
+
+ .mobile-brand-mark img {
+ display: none;
+ max-width: 82%;
+ max-height: 82%;
+ object-fit: contain;
+ }
+
+ .mobile-brand-mark.has-logo img { display: block; }
+ .mobile-brand-mark.has-logo span { display: none; }
 
  .top-actions {
  display: flex;
@@ -5804,7 +5963,13 @@ function renderAppPage() {
 
  .topbar-title {
  font-size: 19px;
+ white-space: nowrap;
+ overflow: hidden;
+ text-overflow: ellipsis;
  }
+
+ .mobile-brand-mark { display: grid; }
+ .topbar-start { max-width: calc(100vw - 32px); }
 
  .top-actions .ghost-button {
  display: none;
@@ -6570,8 +6735,11 @@ function renderAppPage() {
 <div class="app-shell">
  <aside class="sidebar">
  <div class="brand-wrap">
- <div class="brand">OV Real Estate</div>
+ <div class="shell-brand-mark" id="sidebarBrandMark"><img id="sidebarBrandLogo" alt=""><span id="sidebarBrandFallback">OV</span></div>
+ <div class="brand-copy">
+ <div class="brand" id="sidebarBrandName">OV Real Estate</div>
  <div class="brand-sub">CRM · ${APP_VERSION}</div>
+ </div>
  </div>
 
  <nav class="nav-list" aria-label="Principal">
@@ -6604,7 +6772,10 @@ function renderAppPage() {
 
  <div class="main-shell">
  <header class="topbar">
+ <div class="topbar-start">
+ <div class="mobile-brand-mark" id="mobileBrandMark"><img id="mobileBrandLogo" alt=""><span id="mobileBrandFallback">OV</span></div>
  <div class="topbar-title" id="topbarTitle">Hoy</div>
+ </div>
 
  <div class="top-actions">
  <button class="ghost-button" id="logoutButton">
@@ -7344,6 +7515,57 @@ function renderAppPage() {
  }
 
 
+ const PUBLIC_BRAND_CACHE_KEY = "ovcrm:public-brand:v1";
+
+ function normalizedShellBrand(source) {
+ const raw = source && typeof source === "object" ? source : {};
+ const values = raw.values && typeof raw.values === "object" ? raw.values : {};
+ const identity = raw.identidad && typeof raw.identidad === "object" ? raw.identidad : {};
+ const appearance = raw.apariencia && typeof raw.apariencia === "object" ? raw.apariencia : {};
+ return {
+ nombre_comercial: String(raw.nombre_comercial || identity.nombre_comercial || values.inmobiliaria_nombre || "OV Real Estate").trim() || "OV Real Estate",
+ nombre_corto: String(raw.nombre_corto || identity.nombre_corto || values.inmobiliaria_nombre_corto || "OV").trim() || "OV",
+ logo: String(raw.logo || identity.logo || values.inmobiliaria_logo || "").trim(),
+ color_primario: String(raw.color_primario || appearance.color_primario || values.inmobiliaria_color_primario || "#111111").trim(),
+ color_secundario: String(raw.color_secundario || appearance.color_secundario || values.inmobiliaria_color_secundario || "#FFFFFF").trim()
+ };
+ }
+
+ function cachePublicBrandingLocal(brand) {
+ try {
+ localStorage.setItem(PUBLIC_BRAND_CACHE_KEY, JSON.stringify({saved_at: Date.now(), data: normalizedShellBrand(brand)}));
+ } catch (_) {}
+ }
+
+ function paintBrandMark(markId, imageId, fallbackId, brand) {
+ const mark = document.getElementById(markId);
+ const image = document.getElementById(imageId);
+ const fallback = document.getElementById(fallbackId);
+ if (!mark || !image || !fallback) return;
+ fallback.textContent = companyInitials(brand.nombre_corto || brand.nombre_comercial);
+ if (brand.logo) {
+ image.src = brand.logo;
+ image.alt = "Logo " + brand.nombre_comercial;
+ image.onload = function() { mark.classList.add("has-logo"); };
+ image.onerror = function() { mark.classList.remove("has-logo"); image.removeAttribute("src"); };
+ } else {
+ mark.classList.remove("has-logo");
+ image.removeAttribute("src");
+ }
+ }
+
+ function applyBrandingToShell(source) {
+ const fallbackSource = source || state.inmobiliariaAdmin || (state.me && state.me.branding) || {};
+ const brand = normalizedShellBrand(fallbackSource);
+ const sidebarName = document.getElementById("sidebarBrandName");
+ if (sidebarName) sidebarName.textContent = brand.nombre_comercial;
+ paintBrandMark("sidebarBrandMark", "sidebarBrandLogo", "sidebarBrandFallback", brand);
+ paintBrandMark("mobileBrandMark", "mobileBrandLogo", "mobileBrandFallback", brand);
+ document.title = brand.nombre_comercial + " CRM";
+ cachePublicBrandingLocal(brand);
+ return brand;
+ }
+
  function applyMeToSidebar() {
  const user = state.me && state.me.usuario ? state.me.usuario : {};
  document.getElementById("sidebarUser").textContent =
@@ -7359,6 +7581,7 @@ function renderAppPage() {
  }
  state.me = await api("/api/me");
  applyMeToSidebar();
+ applyBrandingToShell(state.me && state.me.branding ? state.me.branding : null);
  return state.me;
  }
 
@@ -7389,6 +7612,7 @@ function renderAppPage() {
  }
  state.bootstrapLoaded = true;
  applyMeToSidebar();
+ applyBrandingToShell(state.me && state.me.branding ? state.me.branding : null);
  return data;
  }
 
@@ -7466,6 +7690,7 @@ function renderAppPage() {
  if (!state.variablesAdmin && admin.data.variables) state.variablesAdmin = admin.data.variables;
  if (!state.inmobiliariaAdmin && admin.data.inmobiliaria) state.inmobiliariaAdmin = admin.data.inmobiliaria;
  if (state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin && state.inmobiliariaAdmin) state.lastAdminLoad = admin.saved_at;
+ if (state.inmobiliariaAdmin) applyBrandingToShell(state.inmobiliariaAdmin);
  }
 
  const campaigns = readSessionCache("campaigns", CAMPAIGN_HARD_TTL_MS);
@@ -7480,7 +7705,10 @@ function renderAppPage() {
  if (data.templates && typeof data.templates === "object") state.templatesAdmin = hideLegacyTemplateTypes(data.templates);
  if (data.catalogs && typeof data.catalogs === "object") state.catalogsAdmin = data.catalogs;
  if (data.variables && typeof data.variables === "object") state.variablesAdmin = data.variables;
- if (data.inmobiliaria && typeof data.inmobiliaria === "object") state.inmobiliariaAdmin = data.inmobiliaria;
+ if (data.inmobiliaria && typeof data.inmobiliaria === "object") {
+ state.inmobiliariaAdmin = data.inmobiliaria;
+ applyBrandingToShell(data.inmobiliaria);
+ }
  state.lastAdminLoad = Date.now();
  persistAdminCache();
  return data;
@@ -12956,7 +13184,11 @@ function renderAppPage() {
  if (!saved || typeof saved !== "object") throw new Error("El servidor no confirmó la configuración.");
  state.inmobiliariaAdmin = saved;
  state.lastAdminLoad = Date.now();
- if (state.me) state.me.inmobiliaria = companyValue(saved, "inmobiliaria_nombre", "OV Real Estate");
+ if (state.me) {
+ state.me.inmobiliaria = companyValue(saved, "inmobiliaria_nombre", "OV Real Estate");
+ state.me.branding = normalizedShellBrand(saved);
+ }
+ applyBrandingToShell(saved);
  persistAdminCache();
  status.className = "save-status ok";
  status.textContent = "Guardado.";
