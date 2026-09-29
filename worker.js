@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.14.3-no-custom-variables";
+const APP_VERSION = "0.15.0-performance-stable";
 
 
 
@@ -341,6 +341,72 @@ async function routeRequest(request, env) {
  throw publicError(502, "El API no devolvió el arranque del CRM.");
  }
  return jsonResponse({ok: true, data: bootstrapData});
+ }
+
+ /**
+ * API CORE REFRESH — Hoy + Leads sin volver a cargar configuración.
+ */
+ if (
+ url.pathname === "/api/core" &&
+ method === "GET"
+ ) {
+ const session = await requireSession(request, env);
+ const upstream = await callAppsScript(env, session.email, {
+ action: "app.core"
+ });
+ const coreData = upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
+ if (!coreData || typeof coreData !== "object" || !coreData.hoy || !coreData.leads) {
+ throw publicError(502, "El API no devolvió el refresh operativo del CRM.");
+ }
+ return jsonResponse({ok: true, data: coreData});
+ }
+
+ /**
+ * API STATUS — sondeo mínimo para detectar nuevos renglones sin releer CRM.
+ */
+ if (
+ url.pathname === "/api/status" &&
+ method === "GET"
+ ) {
+ const session = await requireSession(request, env);
+ const upstream = await callAppsScript(env, session.email, {
+ action: "app.status"
+ });
+ const statusData = upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
+ if (!statusData || typeof statusData !== "object") {
+ throw publicError(502, "El API no devolvió el estado ligero del CRM.");
+ }
+ return jsonResponse({ok: true, data: statusData});
+ }
+
+ /**
+ * API ADMIN BOOTSTRAP — precarga consolidada para Más.
+ */
+ if (
+ url.pathname === "/api/admin-bootstrap" &&
+ method === "GET"
+ ) {
+ const session = await requireSession(request, env);
+ const upstream = await callAppsScript(env, session.email, {
+ action: "admin.bootstrap"
+ });
+ const adminData = upstream && upstream.data !== undefined
+ ? upstream.data
+ : upstream;
+ if (
+ !adminData ||
+ typeof adminData !== "object" ||
+ !adminData.templates ||
+ !adminData.catalogs ||
+ !adminData.variables
+ ) {
+ throw publicError(502, "El API no devolvió la precarga de administración.");
+ }
+ return jsonResponse({ok: true, data: adminData});
  }
 
 
@@ -6512,6 +6578,7 @@ function renderAppPage() {
 </nav>
 
 <script>
+ const CLIENT_APP_VERSION = ${JSON.stringify(APP_VERSION)};
  const state = {
  me: null,
  hoy: null,
@@ -6546,6 +6613,7 @@ function renderAppPage() {
  lastHoyLoad: 0,
  lastLeadsLoad: 0,
  lastCampaignLoad: 0,
+ lastAdminLoad: 0,
  capiMonitorSeq: 0,
  bootstrapLoaded: false
  };
@@ -6553,6 +6621,18 @@ function renderAppPage() {
  let leadsRefreshBusy = false;
  let campaignsRefreshBusy = false;
  let coreRefreshBusy = false;
+ let adminRefreshBusy = false;
+ let adminBootstrapPromise = null;
+ let lastUserInteractionAt = Date.now();
+ let resumeHoyTimer = null;
+ let adminSearchTimer = null;
+ let adminRefreshTimer = null;
+
+ const ADMIN_SOFT_TTL_MS = 5 * 60 * 1000;
+ const ADMIN_HARD_TTL_MS = 6 * 60 * 60 * 1000;
+ const CAMPAIGN_SOFT_TTL_MS = 2 * 60 * 1000;
+ const CAMPAIGN_HARD_TTL_MS = 30 * 60 * 1000;
+ const SESSION_CACHE_SCHEMA = "perf-v1";
 
  const VIEW_TITLES = {
  hoy: "Hoy",
@@ -6632,7 +6712,7 @@ function renderAppPage() {
  http_status: context.http_status || "",
  error_code: context.error_code || "",
  mensaje: String(error?.message || error || "Error frontend").slice(0, 1000),
- worker_version: APP_VERSION,
+ worker_version: CLIENT_APP_VERSION,
  detalle: String(error?.stack || "").slice(0, 2000)
  }
  })
@@ -7234,6 +7314,147 @@ function renderAppPage() {
  }
 
 
+ function sessionCacheUserKey() {
+ const user = state.me && state.me.usuario ? state.me.usuario : {};
+ return String(user.correo || "").trim().toLowerCase();
+ }
+
+ function sessionCacheKey(name) {
+ const email = sessionCacheUserKey();
+ if (!email) return "";
+ return "ovcrm:" + SESSION_CACHE_SCHEMA + ":" + email + ":" + name;
+ }
+
+ function readSessionCache(name, maxAgeMs) {
+ try {
+ const key = sessionCacheKey(name);
+ if (!key) return null;
+ const raw = sessionStorage.getItem(key);
+ if (!raw) return null;
+ const parsed = JSON.parse(raw);
+ const savedAt = Number(parsed && parsed.saved_at || 0);
+ if (!savedAt || Date.now() - savedAt > Number(maxAgeMs || 0)) {
+ sessionStorage.removeItem(key);
+ return null;
+ }
+ return {saved_at: savedAt, data: parsed.data};
+ } catch (_) {
+ return null;
+ }
+ }
+
+ function writeSessionCache(name, data, savedAt) {
+ try {
+ const key = sessionCacheKey(name);
+ if (!key || data == null) return;
+ sessionStorage.setItem(key, JSON.stringify({
+ saved_at: Number(savedAt || Date.now()),
+ data: data
+ }));
+ } catch (_) {}
+ }
+
+ function clearSecondarySessionCaches() {
+ try {
+ const email = sessionCacheUserKey();
+ if (!email) return;
+ ["admin", "campaigns"].forEach(function(name) {
+ sessionStorage.removeItem("ovcrm:" + SESSION_CACHE_SCHEMA + ":" + email + ":" + name);
+ });
+ } catch (_) {}
+ }
+
+ function persistAdminCache() {
+ if (!state.templatesAdmin || !state.catalogsAdmin || !state.variablesAdmin) return;
+ writeSessionCache("admin", {
+ templates: state.templatesAdmin,
+ catalogs: state.catalogsAdmin,
+ variables: state.variablesAdmin
+ }, state.lastAdminLoad || Date.now());
+ }
+
+ function persistCampaignCache() {
+ if (!state.campaigns) return;
+ writeSessionCache("campaigns", state.campaigns, state.lastCampaignLoad || Date.now());
+ }
+
+ function hydrateSecondarySessionCaches() {
+ const admin = readSessionCache("admin", ADMIN_HARD_TTL_MS);
+ if (admin && admin.data) {
+ if (!state.templatesAdmin && admin.data.templates) state.templatesAdmin = hideLegacyTemplateTypes(admin.data.templates);
+ if (!state.catalogsAdmin && admin.data.catalogs) state.catalogsAdmin = admin.data.catalogs;
+ if (!state.variablesAdmin && admin.data.variables) state.variablesAdmin = admin.data.variables;
+ if (state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin) state.lastAdminLoad = admin.saved_at;
+ }
+
+ const campaigns = readSessionCache("campaigns", CAMPAIGN_HARD_TTL_MS);
+ if (campaigns && campaigns.data && Array.isArray(campaigns.data.campaigns)) {
+ if (!state.campaigns) state.campaigns = campaigns.data;
+ if (!state.lastCampaignLoad) state.lastCampaignLoad = campaigns.saved_at;
+ }
+ }
+
+ function applyAdminBootstrapData(data) {
+ if (!data || typeof data !== "object") throw new Error("El servidor no devolvió la administración del CRM.");
+ if (data.templates && typeof data.templates === "object") state.templatesAdmin = hideLegacyTemplateTypes(data.templates);
+ if (data.catalogs && typeof data.catalogs === "object") state.catalogsAdmin = data.catalogs;
+ if (data.variables && typeof data.variables === "object") state.variablesAdmin = data.variables;
+ state.lastAdminLoad = Date.now();
+ persistAdminCache();
+ return data;
+ }
+
+ async function loadAdminBootstrap(force) {
+ if (!force && state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin) {
+ if (!state.lastAdminLoad || Date.now() - state.lastAdminLoad > ADMIN_SOFT_TTL_MS) refreshAdminBootstrapInBackground();
+ return {templates: state.templatesAdmin, catalogs: state.catalogsAdmin, variables: state.variablesAdmin};
+ }
+ if (adminBootstrapPromise) return adminBootstrapPromise;
+ adminBootstrapPromise = api("/api/admin-bootstrap")
+ .then(applyAdminBootstrapData)
+ .finally(function() { adminBootstrapPromise = null; });
+ return adminBootstrapPromise;
+ }
+
+ async function refreshAdminBootstrapInBackground() {
+ if (adminRefreshBusy || document.hidden) return;
+ if (Date.now() - lastUserInteractionAt < 1800) {
+ clearTimeout(adminRefreshTimer);
+ adminRefreshTimer = setTimeout(function() {
+ refreshAdminBootstrapInBackground();
+ }, 2200);
+ return;
+ }
+ adminRefreshBusy = true;
+ try {
+ await loadAdminBootstrap(true);
+ const route = parseRoute();
+ if (route.type === "templates") await renderTemplatesAdmin(true);
+ else if (route.type === "catalogs") await renderCatalogsAdmin(true);
+ else if (route.type === "variables") await renderMessageVariablesAdmin(true);
+ } catch (error) {
+ reportClientError(error, {accion: "admin.background.refresh", endpoint: "/api/admin-bootstrap"});
+ } finally {
+ adminRefreshBusy = false;
+ }
+ }
+
+ function prefetchAdminViews() {
+ const work = function() {
+ if (state.templatesAdmin && state.catalogsAdmin && state.variablesAdmin && state.lastAdminLoad && Date.now() - state.lastAdminLoad < ADMIN_SOFT_TTL_MS) return;
+ loadAdminBootstrap(false).catch(function(error) {
+ reportClientError(error, {accion: "admin.prefetch", endpoint: "/api/admin-bootstrap"});
+ });
+ };
+ if ("requestIdleCallback" in window) window.requestIdleCallback(work, {timeout: 2200});
+ else setTimeout(work, 1200);
+ }
+
+ function scheduleAdminRerender(callback) {
+ clearTimeout(adminSearchTimer);
+ adminSearchTimer = setTimeout(callback, 90);
+ }
+
  function patchCachedLeadFromDetail(lead) {
  if (!lead || !lead.crm_lead_id || !state.leads || !Array.isArray(state.leads.leads)) return;
  const index = state.leads.leads.findIndex(function(item) {
@@ -7261,13 +7482,9 @@ function renderAppPage() {
  if (coreRefreshBusy) return;
  coreRefreshBusy = true;
  try {
- const data = await api("/api/bootstrap");
+ const data = await api("/api/core");
  if (!data || typeof data !== "object") return;
  const now = Date.now();
- if (data.me && typeof data.me === "object") {
- state.me = data.me;
- applyMeToSidebar();
- }
  if (data.hoy && typeof data.hoy === "object") {
  state.hoy = data.hoy;
  state.lastHoyLoad = now;
@@ -7277,9 +7494,6 @@ function renderAppPage() {
  if (!Number.isFinite(Number(state.leads.total))) state.leads.total = state.leads.leads.length;
  state.lastLeadsLoad = now;
  }
- if (data.message_templates && typeof data.message_templates === "object" && Array.isArray(data.message_templates.templates)) {
- state.messageTemplates = hideLegacyTemplateTypes(data.message_templates);
- }
 
  const route = parseRoute();
  if (route.type === "view" && route.view === "hoy") {
@@ -7287,6 +7501,8 @@ function renderAppPage() {
  } else if (route.type === "view" && route.view === "leads") {
  await renderLeads(false, true);
  }
+ } catch (error) {
+ reportClientError(error, {accion: "app.core.refresh", endpoint: "/api/core"});
  } finally {
  coreRefreshBusy = false;
  }
@@ -7296,17 +7512,27 @@ function renderAppPage() {
  if (leadsRefreshBusy) return;
  leadsRefreshBusy = true;
  try {
- const fresh = await api("/api/leads?limit=500");
+ const status = await api("/api/status");
+ if (!status || status.crm_changed !== true) {
+ state.lastLeadsLoad = Date.now();
+ return;
+ }
+ const core = await api("/api/core");
+ const fresh = core && core.leads;
  if (!fresh || typeof fresh !== "object" || !Array.isArray(fresh.leads)) return;
  if (!Number.isFinite(Number(fresh.total))) fresh.total = fresh.leads.length;
  state.leads = fresh;
  state.lastLeadsLoad = Date.now();
+ if (core.hoy && typeof core.hoy === "object") {
+ state.hoy = core.hoy;
+ state.lastHoyLoad = Date.now();
+ }
  const route = parseRoute();
  if (route.type === "view" && route.view === "leads") {
  await renderLeads(false, true);
  }
  } catch (error) {
- reportClientError(error, {accion: "leads.background.refresh", endpoint: "/api/leads"});
+ reportClientError(error, {accion: "leads.background.refresh", endpoint: "/api/status"});
  } finally {
  leadsRefreshBusy = false;
  }
@@ -7320,6 +7546,7 @@ function renderAppPage() {
  if (!fresh || typeof fresh !== "object" || !Array.isArray(fresh.campaigns)) return;
  state.campaigns = fresh;
  state.lastCampaignLoad = Date.now();
+ persistCampaignCache();
  const route = parseRoute();
  if (route.type === "view" && route.view === "campanas") {
  await renderCampanas(false, true);
@@ -7334,7 +7561,7 @@ function renderAppPage() {
  async function loadHoy(force) {
  const now = Date.now();
  if (state.hoy && !force) {
- if (!state.lastHoyLoad || now - state.lastHoyLoad >= 45 * 1000) {
+ if (!state.lastHoyLoad || now - state.lastHoyLoad >= HOY_BACKGROUND_POLL_MS) {
  pollHoyInBackground(true);
  }
  return state.hoy;
@@ -7367,7 +7594,7 @@ function renderAppPage() {
  async function loadCampaigns(force) {
  const now = Date.now();
  if (state.campaigns && !force) {
- if (!state.lastCampaignLoad || now - state.lastCampaignLoad >= 120 * 1000) {
+ if (!state.lastCampaignLoad || now - state.lastCampaignLoad >= CAMPAIGN_SOFT_TTL_MS) {
  refreshCampaignsInBackground();
  }
  return state.campaigns;
@@ -7377,6 +7604,7 @@ function renderAppPage() {
  throw new Error("El servidor no devolvió métricas de campañas válidas.");
  }
  state.lastCampaignLoad = Date.now();
+ persistCampaignCache();
  return state.campaigns;
  }
 
@@ -9561,6 +9789,10 @@ function renderAppPage() {
 
  async function loadMessageTemplates() {
  if (state.messageTemplates && Array.isArray(state.messageTemplates.templates)) {
+ return state.messageTemplates;
+ }
+ if (state.templatesAdmin && Array.isArray(state.templatesAdmin.templates)) {
+ state.messageTemplates = hideLegacyTemplateTypes(state.templatesAdmin);
  return state.messageTemplates;
  }
 
@@ -12152,6 +12384,7 @@ function renderAppPage() {
 
  function renderMas() {
  const content = clearContent();
+ prefetchAdminViews();
  content.appendChild(
  createHero(
  "Configuración",
@@ -12178,7 +12411,7 @@ function renderAppPage() {
  },
  {
  title: "Variables mensajes",
- text: "Controla qué datos puedes insertar en plantillas y crea variables propias como {municipio}.",
+ text: "Controla qué datos automáticos del CRM, empresa y asesor puedes insertar en las plantillas.",
  action: "Administrar variables →",
  enabled: true,
  onClick: function() { navigate("mas/variables"); }
@@ -12258,10 +12491,12 @@ function renderAppPage() {
  }
 
  async function loadTemplatesAdmin(force) {
- if (state.templatesAdmin && !force) return state.templatesAdmin;
- const data = hideLegacyTemplateTypes(await api("/api/templates?include_inactive=1"));
- state.templatesAdmin = data;
- return data;
+ if (state.templatesAdmin && !force) {
+ if (!state.lastAdminLoad || Date.now() - state.lastAdminLoad > ADMIN_SOFT_TTL_MS) refreshAdminBootstrapInBackground();
+ return state.templatesAdmin;
+ }
+ await loadAdminBootstrap(!!force);
+ return state.templatesAdmin;
  }
 
  function filteredTemplatesAdmin(data) {
@@ -12281,6 +12516,32 @@ function renderAppPage() {
  showError(error.message);
  reportClientError(error, {accion: "templates.render", endpoint: "/api/templates"});
  });
+ }
+
+ function applyTemplateMutationLocal(savedTemplate) {
+ if (!savedTemplate || !savedTemplate.template_id || !state.templatesAdmin) return false;
+ const list = Array.isArray(state.templatesAdmin.templates) ? state.templatesAdmin.templates : [];
+ const index = list.findIndex(function(item) { return String(item.template_id || "") === String(savedTemplate.template_id || ""); });
+ if (index >= 0) list[index] = Object.assign({}, list[index], savedTemplate);
+ else list.push(savedTemplate);
+ if (savedTemplate.predeterminada) {
+ list.forEach(function(item) {
+ if (String(item.template_id || "") === String(savedTemplate.template_id || "")) return;
+ if (String(item.tipo_mensaje || "") !== String(savedTemplate.tipo_mensaje || "")) return;
+ if (String(item.alcance || "") !== String(savedTemplate.alcance || "")) return;
+ if (String(item.proyecto || "") !== String(savedTemplate.proyecto || "")) return;
+ item.predeterminada = false;
+ });
+ }
+ state.templatesAdmin.templates = list;
+ if (state.templatesAdmin.summary) {
+ state.templatesAdmin.summary.total = list.length;
+ state.templatesAdmin.summary.active = list.filter(function(item) { return !!item.activo; }).length;
+ }
+ state.messageTemplates = null;
+ state.lastAdminLoad = Date.now();
+ persistAdminCache();
+ return true;
  }
 
  function openTemplateEditor(template, data) {
@@ -12420,20 +12681,23 @@ function renderAppPage() {
  if (payload.alcance === "PROYECTO" && !payload.proyecto) throw new Error("Capture el proyecto.");
  if (!payload.mensaje) throw new Error("Capture el mensaje.");
 
+ let result;
  if (isEdit) {
- await api("/api/templates/" + encodeURIComponent(source.template_id), {
+ result = await api("/api/templates/" + encodeURIComponent(source.template_id), {
  method: "PATCH",
  body: JSON.stringify({expected_version: Number(source.version || 1), template: payload})
  });
  } else {
- await api("/api/templates", {
+ result = await api("/api/templates", {
  method: "POST",
  body: JSON.stringify({template: payload})
  });
  }
+ const saved = result && result.template ? result.template : (result && result.template_id ? result : null);
+ if (!applyTemplateMutationLocal(saved)) {
  state.templatesAdmin = null;
- state.messageTemplates = null;
- await loadTemplatesAdmin(true);
+ await loadAdminBootstrap(true);
+ }
  refreshTemplatesScreenFromState();
  }, isEdit ? "Guardar cambios" : "Crear plantilla");
  }
@@ -12579,10 +12843,10 @@ function renderAppPage() {
  }
 
  async function loadCatalogsAdmin(force) {
- if (state.catalogsAdmin && !force) return state.catalogsAdmin;
- const data = await api("/api/catalogs");
- state.catalogsAdmin = data;
- const catalogs = Array.isArray(data.catalogs) ? data.catalogs : [];
+ if (!state.catalogsAdmin || force) await loadAdminBootstrap(!!force);
+ else if (!state.lastAdminLoad || Date.now() - state.lastAdminLoad > ADMIN_SOFT_TTL_MS) refreshAdminBootstrapInBackground();
+ const data = state.catalogsAdmin;
+ const catalogs = Array.isArray(data && data.catalogs) ? data.catalogs : [];
  const selectedExists = catalogs.some(function(c) { return c.key === state.catalogsSelectedKey && c.group === state.catalogsGroup; });
  if (!selectedExists) {
  const first = catalogs.find(function(c) { return c.group === state.catalogsGroup; }) || catalogs[0];
@@ -12614,6 +12878,52 @@ function renderAppPage() {
  if (state.catalogsOptionStatus === "active") rows = rows.filter(function(o) { return !!o.activo; });
  if (state.catalogsOptionStatus === "inactive") rows = rows.filter(function(o) { return !o.activo; });
  return rows;
+ }
+
+ function recomputeCatalogSummaryLocal() {
+ const data = state.catalogsAdmin;
+ if (!data || !Array.isArray(data.catalogs)) return;
+ let active = 0;
+ let total = 0;
+ data.catalogs.forEach(function(catalog) {
+ const options = Array.isArray(catalog.options) ? catalog.options : [];
+ catalog.option_count = options.length;
+ catalog.active_count = options.filter(function(option) { return !!option.activo; }).length;
+ total += options.length;
+ active += catalog.active_count;
+ });
+ if (data.summary && typeof data.summary === "object") {
+ data.summary.options = total;
+ data.summary.active_options = active;
+ }
+ state.lastAdminLoad = Date.now();
+ persistAdminCache();
+ }
+
+ function applyCatalogOptionLocal(catalog, savedOption, fallbackOption) {
+ if (!catalog) return false;
+ const option = savedOption || fallbackOption;
+ if (!option) return false;
+ const list = Array.isArray(catalog.options) ? catalog.options : [];
+ const optionId = String(option.option_id || (fallbackOption && fallbackOption.option_id) || "");
+ let index = optionId ? list.findIndex(function(row) { return String(row.option_id || "") === optionId; }) : -1;
+ if (index >= 0) {
+ list[index] = Object.assign({}, list[index], option);
+ } else {
+ list.push(Object.assign({
+ usage_count: 0,
+ usage_supported: !!catalog.usage_supported,
+ locked: false,
+ lock_reason: "",
+ can_rename: true,
+ can_toggle: true,
+ can_reorder: true,
+ can_edit_notes: true
+ }, option));
+ }
+ catalog.options = list;
+ recomputeCatalogSummaryLocal();
+ return true;
  }
 
  function openCatalogOptionEditor(catalog, option) {
@@ -12665,19 +12975,24 @@ function renderAppPage() {
  activo: active.checked
  };
  if (!payload.nombre) throw new Error("Capture un nombre para la opción.");
+ let result;
  if (isEdit) {
- await api("/api/catalogs/" + encodeURIComponent(source.option_id), {
+ result = await api("/api/catalogs/" + encodeURIComponent(source.option_id), {
  method: "PATCH",
  body: JSON.stringify({option: payload})
  });
  } else {
- await api("/api/catalogs", {
+ result = await api("/api/catalogs", {
  method: "POST",
  body: JSON.stringify({catalogo: catalog.key, option: payload})
  });
  }
+ const saved = result && result.option ? result.option : (result && result.option_id ? result : null);
+ const fallback = isEdit ? Object.assign({}, source, payload) : null;
+ if (!applyCatalogOptionLocal(catalog, saved, fallback)) {
  state.catalogsAdmin = null;
- await loadCatalogsAdmin(true);
+ await loadAdminBootstrap(true);
+ }
  refreshCatalogsScreenFromState();
  }, isEdit ? "Guardar cambios" : "Crear opción");
  }
@@ -12689,15 +13004,17 @@ function renderAppPage() {
  option.activo = next;
  refreshCatalogsScreenFromState();
  try {
- await api("/api/catalogs/" + encodeURIComponent(option.option_id), {
+ const result = await api("/api/catalogs/" + encodeURIComponent(option.option_id), {
  method: "PATCH",
  body: JSON.stringify({option: {activo: next}})
  });
- state.catalogsAdmin = null;
- await loadCatalogsAdmin(true);
+ const saved = result && result.option ? result.option : null;
+ if (saved) Object.assign(option, saved);
+ recomputeCatalogSummaryLocal();
  refreshCatalogsScreenFromState();
  } catch (error) {
  option.activo = before;
+ recomputeCatalogSummaryLocal();
  refreshCatalogsScreenFromState();
  showError(error.message || "No se pudo actualizar la opción.");
  }
@@ -12709,22 +13026,23 @@ function renderAppPage() {
  const index = all.findIndex(function(o) { return o.option_id === optionId; });
  const target = index + delta;
  if (index < 0 || target < 0 || target >= all.length) return;
+ const original = all.slice();
  const temp = all[index];
  all[index] = all[target];
  all[target] = temp;
+ all.forEach(function(option, idx) { option.orden = (idx + 1) * 10; });
  catalog.options = all;
+ recomputeCatalogSummaryLocal();
  refreshCatalogsScreenFromState();
  try {
  await api("/api/catalogs/reorder", {
  method: "POST",
  body: JSON.stringify({catalogo: catalog.key, option_ids: all.map(function(o) { return o.option_id; })})
  });
- state.catalogsAdmin = null;
- await loadCatalogsAdmin(true);
- refreshCatalogsScreenFromState();
+ recomputeCatalogSummaryLocal();
  } catch (error) {
- state.catalogsAdmin = null;
- await loadCatalogsAdmin(true).catch(function() {});
+ catalog.options = original;
+ recomputeCatalogSummaryLocal();
  refreshCatalogsScreenFromState();
  showError(error.message || "No se pudo reordenar el catálogo.");
  }
@@ -12819,7 +13137,7 @@ function renderAppPage() {
  catalogSearch.value = state.catalogsSearch;
  catalogSearch.addEventListener("input", function() {
  state.catalogsSearch = catalogSearch.value;
- refreshCatalogsScreenFromState();
+ scheduleAdminRerender(refreshCatalogsScreenFromState);
  });
  nav.appendChild(catalogSearch);
 
@@ -12891,7 +13209,7 @@ function renderAppPage() {
  optionSearch.value = state.catalogsOptionSearch;
  optionSearch.addEventListener("input", function() {
  state.catalogsOptionSearch = optionSearch.value;
- refreshCatalogsScreenFromState();
+ scheduleAdminRerender(refreshCatalogsScreenFromState);
  });
  const status = element("select", "form-control");
  [
@@ -12999,10 +13317,12 @@ function renderAppPage() {
  }
 
  async function loadMessageVariablesAdmin(force) {
- if (state.variablesAdmin && !force) return state.variablesAdmin;
- const data = await api("/api/message-variables");
- state.variablesAdmin = data;
- return data;
+ if (state.variablesAdmin && !force) {
+ if (!state.lastAdminLoad || Date.now() - state.lastAdminLoad > ADMIN_SOFT_TTL_MS) refreshAdminBootstrapInBackground();
+ return state.variablesAdmin;
+ }
+ await loadAdminBootstrap(!!force);
+ return state.variablesAdmin;
  }
 
  function refreshMessageVariablesScreenFromState() {
@@ -13109,6 +13429,15 @@ function renderAppPage() {
  if (matches(candidate)) apply(candidate);
  });
  });
+
+ if (state.templatesAdmin) {
+ [state.templatesAdmin.variables, state.templatesAdmin.all_variables].forEach(function(list) {
+ if (!Array.isArray(list)) return;
+ list.forEach(function(candidate) {
+ if (matches(candidate)) apply(candidate);
+ });
+ });
+ }
 
  if (
  serverVariable &&
@@ -13227,16 +13556,19 @@ function renderAppPage() {
 
  updateMessageVariableCachedCopies(item, savedVisible, updated);
 
- // Invalida plantillas para la próxima apertura, sin volver a descargar variables.
+ // El compositor debe refrescar sus plantillas la próxima vez, pero la administración
+ // queda disponible en memoria para no castigar el menú Más.
  state.messageTemplates = null;
- state.templatesAdmin = null;
-
+ state.lastAdminLoad = Date.now();
+ persistAdminCache();
  paintMessageVariableVisibility(item, row, toggle, meta, false);
  return true;
  } catch (error) {
  // Si falla el guardado, regresamos exactamente al estado anterior.
  updateMessageVariableCachedCopies(item, before, null);
  updateVisibleVariablesSummary(before ? 1 : -1);
+ state.lastAdminLoad = Date.now();
+ persistAdminCache();
  paintMessageVariableVisibility(item, row, toggle, meta, false);
  showError(error.message || "No se pudo actualizar la variable.");
  throw error;
@@ -13563,7 +13895,7 @@ function renderAppPage() {
  search.value = state.variablesSearch;
  search.addEventListener("input", function() {
  state.variablesSearch = search.value;
- refreshMessageVariablesScreenFromState();
+ scheduleAdminRerender(refreshMessageVariablesScreenFromState);
  });
  controls.appendChild(search);
  if (state.variablesGroup === "crm") {
@@ -13623,7 +13955,7 @@ function renderAppPage() {
 
 
 
- const HOY_BACKGROUND_POLL_MS = 45 * 1000;
+ const HOY_BACKGROUND_POLL_MS = 60 * 1000;
  let hoyBackgroundBusy = false;
  let lastHoyBackgroundPoll = 0;
 
@@ -13652,11 +13984,22 @@ function renderAppPage() {
  async function pollHoyInBackground(forceNow) {
  if (hoyBackgroundBusy || document.hidden) return;
  const now = Date.now();
+ if (now - lastUserInteractionAt < 2500) return;
  if (!forceNow && now - lastHoyBackgroundPoll < HOY_BACKGROUND_POLL_MS - 1000) return;
 
  hoyBackgroundBusy = true;
  try {
- const freshHoy = await api("/api/hoy");
+ // El heartbeat solo consulta getLastRow() en CRM. Mientras no cambie,
+ // no descargamos las 48 columnas ni reconstruimos Hoy.
+ const status = await api("/api/status");
+ lastHoyBackgroundPoll = Date.now();
+ if (!status || status.crm_changed !== true) return;
+
+ // Si el Runner agregó un lead, refrescamos Hoy + Leads juntos en una sola
+ // ejecución y reutilizando un único snapshot de CRM.
+ const freshCore = await api("/api/core");
+ const freshHoy = freshCore && freshCore.hoy;
+ const freshLeads = freshCore && freshCore.leads;
  if (!freshHoy || typeof freshHoy !== "object") return;
 
  const freshIds = getHoyNewLeadIds(freshHoy);
@@ -13664,29 +14007,28 @@ function renderAppPage() {
  const seen = new Set(Array.isArray(state.seenHoyNewLeadIds) ? state.seenHoyNewLeadIds : []);
  const hasNewLead = hadBaseline && freshIds.some(function(id) { return !seen.has(id); });
 
- if (!hadBaseline) {
- state.seenHoyNewLeadIds = freshIds.slice();
- }
-
+ if (!hadBaseline) state.seenHoyNewLeadIds = freshIds.slice();
  state.hoy = freshHoy;
  state.lastHoyLoad = Date.now();
- lastHoyBackgroundPoll = Date.now();
 
- if (hasNewLead) {
- // Conservamos la lista actual para que navegar siga siendo instantáneo,
- // pero la marcamos como vencida y la refrescamos sin bloquear la pantalla.
- state.lastLeadsLoad = 0;
- refreshLeadsInBackground();
+ if (freshLeads && typeof freshLeads === "object" && Array.isArray(freshLeads.leads)) {
+ state.leads = freshLeads;
+ if (!Number.isFinite(Number(state.leads.total))) state.leads.total = state.leads.leads.length;
+ state.lastLeadsLoad = Date.now();
+ }
 
  const route = parseRoute();
  if (route.type === "view" && route.view === "hoy") {
  await renderHoy(false, true);
- } else {
+ } else if (route.type === "view" && route.view === "leads") {
+ await renderLeads(false, true);
+ }
+
+ if (hasNewLead && !(route.type === "view" && route.view === "hoy")) {
  setHoyUpdateIndicator(true);
  }
- }
  } catch (error) {
- reportClientError(error, {accion: "hoy.background.poll", endpoint: "/api/hoy"});
+ reportClientError(error, {accion: "hoy.background.poll", endpoint: "/api/status"});
  } finally {
  hoyBackgroundBusy = false;
  }
@@ -13710,6 +14052,7 @@ function renderAppPage() {
 
  async function logout() {
  try {
+ clearSecondarySessionCaches();
  await fetch(
  "/auth/logout",
  {
@@ -13776,6 +14119,7 @@ function renderAppPage() {
  }
 
  await loadMe(false);
+ hydrateSecondarySessionCaches();
  await handleRoute();
 
  // Campañas no bloquea el arranque. La precarga se difiere un poco para no
@@ -13784,6 +14128,7 @@ function renderAppPage() {
  setTimeout(function() { refreshCampaignsInBackground(); }, 1200);
  }
  if (!state.leads) prefetchSecondaryViews();
+ prefetchAdminViews();
 
  } catch (error) {
  showError(error.message);
@@ -13798,13 +14143,22 @@ function renderAppPage() {
  pollHoyInBackground(false);
  }, HOY_BACKGROUND_POLL_MS);
 
- document.addEventListener("visibilitychange", function() {
- if (!document.hidden) pollHoyInBackground(true);
+ ["pointerdown", "keydown", "touchstart"].forEach(function(eventName) {
+ document.addEventListener(eventName, function() { lastUserInteractionAt = Date.now(); }, {passive: true});
  });
 
- window.addEventListener("focus", function() {
- if (Date.now() - lastHoyBackgroundPoll > 5000) pollHoyInBackground(true);
+ function scheduleResumeHoyPoll() {
+ clearTimeout(resumeHoyTimer);
+ resumeHoyTimer = setTimeout(function() {
+ if (!document.hidden && Date.now() - lastHoyBackgroundPoll > 10000) pollHoyInBackground(true);
+ }, 3200);
+ }
+
+ document.addEventListener("visibilitychange", function() {
+ if (!document.hidden) scheduleResumeHoyPoll();
  });
+
+ window.addEventListener("focus", scheduleResumeHoyPoll);
 
  boot();
 </script>
