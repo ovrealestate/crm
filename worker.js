@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.16.2-branding-shell-login
+ * Version: 0.16.3-branding-logo-dark
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.16.2-branding-shell-login";
+const APP_VERSION = "0.16.3-branding-logo-dark";
 
 
 
@@ -3272,9 +3272,11 @@ function renderLoginPage(
 
  place-items: center;
 
- background: #fff;
+ background: #111;
 
- color: #111;
+ color: #fff;
+
+ border: 1px solid #343434;
 
  font-size: 18px;
 
@@ -3875,9 +3877,9 @@ function renderAppPage() {
  display: grid;
  place-items: center;
  overflow: hidden;
- background: #fff;
- color: #111;
- border: 1px solid rgba(255,255,255,.16);
+ background: #111;
+ color: #fff;
+ border: 1px solid rgba(255,255,255,.22);
  font-size: 12px;
  font-weight: 850;
  letter-spacing: -.04em;
