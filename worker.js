@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.14.1-fast-message-variables";
+const APP_VERSION = "0.14.2-instant-variable-toggle";
 
 
 
@@ -6440,7 +6440,7 @@ function renderAppPage() {
  <aside class="sidebar">
  <div class="brand-wrap">
  <div class="brand">OV Real Estate</div>
- <div class="brand-sub">CRM</div>
+ <div class="brand-sub">CRM · ${APP_VERSION}</div>
  </div>
 
  <nav class="nav-list" aria-label="Principal">
@@ -13156,18 +13156,36 @@ function renderAppPage() {
  }
  }
 
- async function toggleMessageVariableVisibility(item, row, toggle, meta) {
+ function toggleMessageVariableVisibility(item, row, toggle, meta) {
  if (!item || !row || !toggle || !meta || toggle.disabled) return;
 
  const before = !!item.habilitada;
  const next = !before;
 
- // Respuesta visual inmediata. El guardado real continúa en segundo plano.
+ // CAMBIO LOCAL PRIMERO: no depende de Apps Script ni de la red.
  updateMessageVariableCachedCopies(item, next, null);
  updateVisibleVariablesSummary(next ? 1 : -1);
  paintMessageVariableVisibility(item, row, toggle, meta, true);
  showError("");
 
+ // Dejamos que Safari/Chrome pinte el cambio antes de iniciar la llamada remota.
+ requestAnimationFrame(function() {
+ setTimeout(function() {
+ persistMessageVariableVisibility(item, row, toggle, meta, before, next)
+ .catch(function(error) {
+ // La función interna ya hizo rollback y mostró el error.
+ reportClientError(error, {
+ accion: "message_variables.visibility.persist",
+ endpoint: item.variable_id
+ ? "/api/message-variables/" + encodeURIComponent(item.variable_id)
+ : "/api/message-variables"
+ });
+ });
+ }, 0);
+ });
+ }
+
+ async function persistMessageVariableVisibility(item, row, toggle, meta, before, next) {
  try {
  let result;
 
@@ -13192,16 +13210,9 @@ function renderAppPage() {
  result && result.variable
  ? result.variable
  : (
- result &&
- result.data &&
- result.data.variable
+ result && result.data && result.data.variable
  ? result.data.variable
- : (
- result &&
- result.variable_id
- ? result
- : null
- )
+ : (result && result.variable_id ? result : null)
  );
 
  const savedVisible =
@@ -13209,26 +13220,25 @@ function renderAppPage() {
  ? !!updated.habilitada
  : next;
 
- // Si el backend devolviera un estado distinto al optimista, corregimos el contador.
  if (savedVisible !== next) {
  updateVisibleVariablesSummary(savedVisible ? 1 : -1);
  }
 
  updateMessageVariableCachedCopies(item, savedVisible, updated);
 
- // Las plantillas se refrescan únicamente la próxima vez que se abran.
- // Ya no hacemos un segundo GET completo de variables después de cada clic.
+ // Invalida plantillas para la próxima apertura, sin volver a descargar variables.
  state.messageTemplates = null;
  state.templatesAdmin = null;
 
  paintMessageVariableVisibility(item, row, toggle, meta, false);
+ return true;
  } catch (error) {
- // Rollback exacto si Google / Apps Script no pudo guardar.
+ // Si falla el guardado, regresamos exactamente al estado anterior.
  updateMessageVariableCachedCopies(item, before, null);
  updateVisibleVariablesSummary(before ? 1 : -1);
  paintMessageVariableVisibility(item, row, toggle, meta, false);
-
  showError(error.message || "No se pudo actualizar la variable.");
+ throw error;
  }
  }
 
