@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.14.0-message-variables-admin
+ * Version: 0.14.1-fast-message-variables
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.14.0-message-variables-admin";
+const APP_VERSION = "0.14.1-fast-message-variables";
 
 
 
@@ -6392,6 +6392,8 @@ function renderAppPage() {
  .variable-actions { display: flex; gap: 7px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
  .variable-visibility { min-width: 96px; }
  .variable-unused-note { color: #8a8a84; }
+ .variable-row.variable-saving { opacity: .78; }
+ .variable-visibility:disabled { cursor: wait; opacity: .78; }
  .variables-empty { border: 1px dashed #d6d6d0; border-radius: 15px; padding: 22px; color: var(--muted); text-align: center; font-size: 11px; }
  .custom-variable-card { border-left: 3px solid #52a36f; }
  .custom-options-preview { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
@@ -13048,29 +13050,184 @@ function renderAppPage() {
  return sources;
  }
 
- async function toggleMessageVariableVisibility(item) {
- if (!item) return;
- const next = !item.habilitada;
+ function updateVisibleVariablesSummary(delta) {
+ const data = state.variablesAdmin;
+ if (!data) return;
+
+ if (!data.summary || typeof data.summary !== "object") {
+ data.summary = {};
+ }
+
+ const current = Number(data.summary.visible_variables || 0);
+ data.summary.visible_variables = Math.max(0, current + Number(delta || 0));
+
+ const metric = document.querySelector('[data-variable-metric="visible"] strong');
+ if (metric) {
+ metric.textContent = String(data.summary.visible_variables);
+ }
+ }
+
+ function updateMessageVariableCachedCopies(item, enabled, serverVariable) {
+ const data = state.variablesAdmin;
+ const variableId = String(
+ (serverVariable && serverVariable.variable_id) ||
+ item.variable_id ||
+ ""
+ );
+ const sourceId = String(item.source_id || "");
+ const token = String(
+ (serverVariable && serverVariable.token) ||
+ item.token ||
+ ""
+ );
+
+ function matches(candidate) {
+ if (!candidate) return false;
+ if (variableId && String(candidate.variable_id || "") === variableId) return true;
+ if (sourceId && String(candidate.source_id || "") === sourceId) return true;
+ if (token && String(candidate.token || "") === token) return true;
+ return false;
+ }
+
+ function apply(target) {
+ if (!target) return;
+ if (serverVariable && typeof serverVariable === "object") {
+ Object.assign(target, serverVariable);
+ }
+ target.habilitada = !!enabled;
+ if (target.variable_id) target.registered = true;
+ }
+
+ apply(item);
+
+ if (!data) return;
+
+ [data.variables, data.sources, data.custom_variables].forEach(function(list) {
+ if (!Array.isArray(list)) return;
+ list.forEach(function(candidate) {
+ if (matches(candidate)) apply(candidate);
+ });
+ });
+
+ if (
+ serverVariable &&
+ variableId &&
+ Array.isArray(data.variables) &&
+ !data.variables.some(function(candidate) {
+ return String(candidate.variable_id || "") === variableId;
+ })
+ ) {
+ data.variables.push(
+ Object.assign(
+ {
+ usage_count: Number(item.usage_count || 0),
+ used_in: item.used_in || []
+ },
+ serverVariable,
+ {habilitada: !!enabled}
+ )
+ );
+ }
+ }
+
+ function paintMessageVariableVisibility(item, row, toggle, meta, pending) {
+ const visible = !!item.habilitada;
+
+ row.classList.toggle("hidden-variable", !visible);
+ row.classList.toggle("variable-saving", !!pending);
+
+ toggle.classList.toggle("on", visible);
+ toggle.classList.toggle("off", !visible);
+ toggle.textContent = visible ? "Visible" : "Oculta";
+ toggle.title = visible
+ ? "Ocultar del editor de plantillas"
+ : "Mostrar en el editor de plantillas";
+ toggle.disabled = !!pending;
+
+ let note = meta.querySelector(".variable-unused-note");
+
+ if (!visible && !note) {
+ note = element("span", "variable-unused-note", "Oculta en el editor");
+ meta.appendChild(note);
+ }
+
+ if (visible && note) {
+ note.remove();
+ }
+ }
+
+ async function toggleMessageVariableVisibility(item, row, toggle, meta) {
+ if (!item || !row || !toggle || !meta || toggle.disabled) return;
+
+ const before = !!item.habilitada;
+ const next = !before;
+
+ // Respuesta visual inmediata. El guardado real continúa en segundo plano.
+ updateMessageVariableCachedCopies(item, next, null);
+ updateVisibleVariablesSummary(next ? 1 : -1);
+ paintMessageVariableVisibility(item, row, toggle, meta, true);
+ showError("");
+
  try {
+ let result;
+
  if (item.variable_id) {
- await api("/api/message-variables/" + encodeURIComponent(item.variable_id), {
+ result = await api(
+ "/api/message-variables/" + encodeURIComponent(item.variable_id),
+ {
  method: "PATCH",
  body: JSON.stringify({variable: {habilitada: next}})
- });
+ }
+ );
  } else if (next) {
- await api("/api/message-variables", {
+ result = await api("/api/message-variables", {
  method: "POST",
  body: JSON.stringify({kind: "SOURCE", source_id: item.source_id})
  });
  } else {
- return;
+ throw new Error("La variable no está registrada.");
  }
- state.variablesAdmin = null;
+
+ const updated =
+ result && result.variable
+ ? result.variable
+ : (
+ result &&
+ result.data &&
+ result.data.variable
+ ? result.data.variable
+ : (
+ result &&
+ result.variable_id
+ ? result
+ : null
+ )
+ );
+
+ const savedVisible =
+ updated && typeof updated.habilitada === "boolean"
+ ? !!updated.habilitada
+ : next;
+
+ // Si el backend devolviera un estado distinto al optimista, corregimos el contador.
+ if (savedVisible !== next) {
+ updateVisibleVariablesSummary(savedVisible ? 1 : -1);
+ }
+
+ updateMessageVariableCachedCopies(item, savedVisible, updated);
+
+ // Las plantillas se refrescan únicamente la próxima vez que se abran.
+ // Ya no hacemos un segundo GET completo de variables después de cada clic.
  state.messageTemplates = null;
  state.templatesAdmin = null;
- await loadMessageVariablesAdmin(true);
- refreshMessageVariablesScreenFromState();
+
+ paintMessageVariableVisibility(item, row, toggle, meta, false);
  } catch (error) {
+ // Rollback exacto si Google / Apps Script no pudo guardar.
+ updateMessageVariableCachedCopies(item, before, null);
+ updateVisibleVariablesSummary(before ? 1 : -1);
+ paintMessageVariableVisibility(item, row, toggle, meta, false);
+
  showError(error.message || "No se pudo actualizar la variable.");
  }
  }
@@ -13269,7 +13426,9 @@ function renderAppPage() {
  const toggle = element("button", "catalog-toggle variable-visibility " + (item.habilitada ? "on" : "off"), item.habilitada ? "Visible" : "Oculta");
  toggle.type = "button";
  toggle.title = item.habilitada ? "Ocultar del editor de plantillas" : "Mostrar en el editor de plantillas";
- toggle.addEventListener("click", function() { toggleMessageVariableVisibility(item); });
+ toggle.addEventListener("click", function() {
+ toggleMessageVariableVisibility(item, row, toggle, meta);
+ });
  actions.appendChild(toggle);
  if (isCustom) {
  const edit = element("button", "secondary-button catalog-edit-button", "Editar");
@@ -13317,7 +13476,14 @@ function renderAppPage() {
  const summary = data.summary || {};
  const metrics = element("div", "catalog-metrics");
  metrics.appendChild(catalogMetricCard(summary.available_sources || 0, "Datos disponibles"));
- metrics.appendChild(catalogMetricCard(summary.visible_variables || 0, "Visibles en plantillas"));
+
+ const visibleMetric = catalogMetricCard(
+ summary.visible_variables || 0,
+ "Visibles en plantillas"
+ );
+ visibleMetric.dataset.variableMetric = "visible";
+ metrics.appendChild(visibleMetric);
+
  metrics.appendChild(catalogMetricCard(summary.custom_variables || 0, "Personalizadas"));
  metrics.appendChild(catalogMetricCard(summary.used_variables || 0, "Variables en uso", summary.issues ? "warning" : "ok"));
  page.appendChild(metrics);
@@ -13396,7 +13562,6 @@ function renderAppPage() {
  });
  filtered.sort(function(a, b) {
  if (!!a.technical !== !!b.technical) return a.technical ? 1 : -1;
- if (!!a.habilitada !== !!b.habilitada) return a.habilitada ? -1 : 1;
  return String(a.nombre || "").localeCompare(String(b.nombre || ""), "es");
  });
  if (!filtered.length) list.appendChild(element("div", "variables-empty", "No hay variables con esos filtros."));
