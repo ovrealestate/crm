@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.14.2-instant-variable-toggle";
+const APP_VERSION = "0.14.3-no-custom-variables";
 
 
 
@@ -9619,13 +9619,9 @@ function renderAppPage() {
  }
 
  function templateCustomVariables(data, template) {
- const message = String(template && template.mensaje || "");
- const all = data && Array.isArray(data.all_variables)
- ? data.all_variables
- : (data && Array.isArray(data.variables) ? data.variables : []);
- return all.filter(function(variable) {
- return variable && String(variable.tipo_fuente || "").toUpperCase() === "CUSTOM" && variable.activa !== false && variable.token && message.indexOf(variable.token) !== -1;
- });
+ // Las variables personalizadas fueron retiradas de la App.
+ // Se conserva esta función únicamente para compatibilidad con el flujo existente.
+ return [];
  }
 
  function createWhatsAppComposer(lead, config) {
@@ -12353,7 +12349,9 @@ function renderAppPage() {
  const tokenSection = element("div", "template-token-section");
  tokenSection.appendChild(element("div", "form-label", "Variables disponibles"));
  const tokenList = element("div", "template-token-list");
- (data.variables || []).forEach(function(variable) {
+ (data.variables || []).filter(function(variable) {
+ return String(variable && variable.tipo_fuente || "").toUpperCase() !== "CUSTOM";
+ }).forEach(function(variable) {
  const button = element("button", "template-token", variable.token);
  button.type = "button";
  button.title = variable.nombre + (variable.ejemplo ? " · Ejemplo: " + variable.ejemplo : "");
@@ -12398,7 +12396,10 @@ function renderAppPage() {
  if (!projectScoped) projectInput.value = "";
  };
  const updatePreview = function() {
- preview.textContent = renderTemplatePreview(message.value, data.all_variables || data.variables || []);
+ const previewVariables = (data.all_variables || data.variables || []).filter(function(variable) {
+ return String(variable && variable.tipo_fuente || "").toUpperCase() !== "CUSTOM";
+ });
+ preview.textContent = renderTemplatePreview(message.value, previewVariables);
  };
  scope.addEventListener("change", syncScope);
  message.addEventListener("input", updatePreview);
@@ -13459,6 +13460,32 @@ function renderAppPage() {
  }
  try {
  const data = await loadMessageVariablesAdmin(false);
+
+ // La App ya no expone variables personalizadas. Solo trabajamos con datos
+ // automáticos del CRM, empresa, asesor y variables calculadas.
+ if (state.variablesGroup !== "crm" && state.variablesGroup !== "company") {
+ state.variablesGroup = "crm";
+ }
+
+ const standardVariables = Array.isArray(data.variables)
+ ? data.variables.filter(function(variable) {
+ return String(variable && variable.tipo_fuente || "").toUpperCase() !== "CUSTOM";
+ })
+ : [];
+
+ const standardVisible = standardVariables.filter(function(variable) {
+ return variable && variable.habilitada;
+ }).length;
+
+ const standardUsed = standardVariables.filter(function(variable) {
+ return Number(variable && variable.usage_count || 0) > 0;
+ }).length;
+
+ if (!data.summary || typeof data.summary !== "object") data.summary = {};
+ data.summary.visible_variables = standardVisible;
+ data.summary.used_variables = standardUsed;
+ data.summary.issues = false;
+
  const page = element("div", "variables-page");
  const toolbar = element("div", "templates-toolbar");
  const back = element("button", "templates-back", "← Más");
@@ -13480,11 +13507,12 @@ function renderAppPage() {
  page.appendChild(createHero(
  "MENSAJERÍA DINÁMICA",
  "Variables mensajes",
- "Decide qué datos aparecen al construir plantillas y crea variables propias sin agregar columnas al CRM."
+ "Elige qué datos automáticos del CRM, empresa y asesor estarán disponibles al construir plantillas."
  ));
 
  const summary = data.summary || {};
  const metrics = element("div", "catalog-metrics");
+ metrics.style.gridTemplateColumns = "repeat(3, minmax(0, 1fr))";
  metrics.appendChild(catalogMetricCard(summary.available_sources || 0, "Datos disponibles"));
 
  const visibleMetric = catalogMetricCard(
@@ -13494,40 +13522,36 @@ function renderAppPage() {
  visibleMetric.dataset.variableMetric = "visible";
  metrics.appendChild(visibleMetric);
 
- metrics.appendChild(catalogMetricCard(summary.custom_variables || 0, "Personalizadas"));
- metrics.appendChild(catalogMetricCard(summary.used_variables || 0, "Variables en uso", summary.issues ? "warning" : "ok"));
+ metrics.appendChild(catalogMetricCard(summary.used_variables || 0, "Variables en uso", "ok"));
  page.appendChild(metrics);
 
  const explainer = element("div", "variables-explainer");
+ explainer.style.gridTemplateColumns = "1fr";
  const explainText = element("div", "");
- explainText.appendChild(element("strong", "", "Una variable no tiene que existir como columna del CRM."));
- explainText.appendChild(element("span", "", "Las variables de datos se rellenan automáticamente. Las personalizadas —por ejemplo {municipio}— pueden tener una lista de opciones y la App te pedirá elegir el valor justo antes de preparar WhatsApp."));
+ explainText.appendChild(element("strong", "", "Solo variables automáticas."));
+ explainText.appendChild(element("span", "", "Estas variables se rellenan con información que ya existe en el CRM, en la empresa o en el asesor. Ocultarlas solo las quita del editor de plantillas; no modifica la ficha del cliente ni rompe plantillas existentes."));
  explainer.appendChild(explainText);
- if (data.can_edit) {
- const add = element("button", "save-button", "+ Nueva variable");
- add.type = "button";
- add.addEventListener("click", function() { openCustomVariableEditor(null, data); });
- explainer.appendChild(add);
- }
  page.appendChild(explainer);
 
- const health = element("div", "catalog-health " + (summary.issues ? "warning" : "ok"));
- health.appendChild(element("div", "catalog-health-icon", summary.issues ? "!" : "✓"));
+ const health = element("div", "catalog-health ok");
+ health.appendChild(element("div", "catalog-health-icon", "✓"));
  const healthText = element("div", "");
- healthText.appendChild(element("strong", "", summary.issues ? "Hay variables personalizadas incompletas" : "Variables listas para usar"));
- healthText.appendChild(element("span", "", summary.issues ? "Alguna variable de lista usada por una plantilla no tiene opciones activas." : "Ocultar una variable solo la quita del selector; las plantillas existentes siguen funcionando."));
+ healthText.appendChild(element("strong", "", "Variables listas para usar"));
+ healthText.appendChild(element("span", "", "Mantén visibles únicamente los datos que realmente utilizas al redactar mensajes."));
  health.appendChild(healthText);
  page.appendChild(health);
 
  const tabs = element("div", "variables-tabs");
  [
  {key: "crm", label: "Datos del CRM"},
- {key: "company", label: "Empresa y asesor"},
- {key: "custom", label: "Personalizadas"}
+ {key: "company", label: "Empresa y asesor"}
  ].forEach(function(group) {
  const button = element("button", "catalog-group-tab" + (state.variablesGroup === group.key ? " active" : ""), group.label);
  button.type = "button";
- button.addEventListener("click", function() { state.variablesGroup = group.key; refreshMessageVariablesScreenFromState(); });
+ button.addEventListener("click", function() {
+ state.variablesGroup = group.key;
+ refreshMessageVariablesScreenFromState();
+ });
  tabs.appendChild(button);
  });
  page.appendChild(tabs);
@@ -13537,14 +13561,20 @@ function renderAppPage() {
  search.type = "search";
  search.placeholder = "Buscar por nombre, token o campo";
  search.value = state.variablesSearch;
- search.addEventListener("input", function() { state.variablesSearch = search.value; refreshMessageVariablesScreenFromState(); });
+ search.addEventListener("input", function() {
+ state.variablesSearch = search.value;
+ refreshMessageVariablesScreenFromState();
+ });
  controls.appendChild(search);
  if (state.variablesGroup === "crm") {
  const technical = element("label", "variables-technical-toggle");
  const checkbox = element("input");
  checkbox.type = "checkbox";
  checkbox.checked = !!state.variablesShowTechnical;
- checkbox.addEventListener("change", function() { state.variablesShowTechnical = checkbox.checked; refreshMessageVariablesScreenFromState(); });
+ checkbox.addEventListener("change", function() {
+ state.variablesShowTechnical = checkbox.checked;
+ refreshMessageVariablesScreenFromState();
+ });
  technical.append(checkbox, document.createTextNode(" Mostrar variables técnicas"));
  controls.appendChild(technical);
  }
@@ -13552,19 +13582,13 @@ function renderAppPage() {
 
  const list = element("div", "variable-list");
  const query = normalized(state.variablesSearch || "");
- if (state.variablesGroup === "custom") {
- const custom = Array.isArray(data.custom_variables) ? data.custom_variables.slice() : [];
- const filtered = custom.filter(function(item) {
- if (!query) return true;
- return normalized([item.nombre, item.token, item.notas, item.ejemplo].join(" ")).includes(query);
- });
- if (!filtered.length) list.appendChild(element("div", "variables-empty", custom.length ? "No hay variables personalizadas con esa búsqueda." : "Todavía no tienes variables personalizadas. Crea una como {municipio} y define sus opciones."));
- filtered.forEach(function(item) { list.appendChild(variableRowElement(item, data, true)); });
- } else {
  const allSources = combinedVariableSources(data);
  const filtered = allSources.filter(function(item) {
  const type = String(item.tipo_fuente || "").toUpperCase();
- const belongs = state.variablesGroup === "company" ? (type === "CONFIG" || type === "USUARIO") : (type === "CRM" || type === "CALCULADA");
+ if (type === "CUSTOM") return false;
+ const belongs = state.variablesGroup === "company"
+ ? (type === "CONFIG" || type === "USUARIO")
+ : (type === "CRM" || type === "CALCULADA");
  if (!belongs) return false;
  if (state.variablesGroup === "crm" && item.technical && !state.variablesShowTechnical) return false;
  if (!query) return true;
@@ -13574,14 +13598,17 @@ function renderAppPage() {
  if (!!a.technical !== !!b.technical) return a.technical ? 1 : -1;
  return String(a.nombre || "").localeCompare(String(b.nombre || ""), "es");
  });
- if (!filtered.length) list.appendChild(element("div", "variables-empty", "No hay variables con esos filtros."));
- filtered.forEach(function(item) { list.appendChild(variableRowElement(item, data, false)); });
+ if (!filtered.length) {
+ list.appendChild(element("div", "variables-empty", "No hay variables con esos filtros."));
  }
+ filtered.forEach(function(item) {
+ list.appendChild(variableRowElement(item, data, false));
+ });
  page.appendChild(list);
 
  const foot = element("div", "catalog-foot-note");
  foot.appendChild(element("strong", "", "Cómo funciona: "));
- foot.appendChild(document.createTextNode("Visible = aparece como botón dentro del editor de plantillas. Oculta = deja de ofrecerse para mensajes nuevos, pero no rompe plantillas que ya la usan. Las variables personalizadas se completan al preparar el WhatsApp."));
+ foot.appendChild(document.createTextNode("Visible = aparece como botón dentro del editor de plantillas. Oculta = deja de ofrecerse para mensajes nuevos, pero no altera los datos del CRM ni las plantillas que ya la usan."));
  page.appendChild(foot);
 
  content.className = "";
@@ -13593,6 +13620,7 @@ function renderAppPage() {
  reportClientError(error, {accion: "message_variables.list", endpoint: "/api/message-variables"});
  }
  }
+
 
 
  const HOY_BACKGROUND_POLL_MS = 45 * 1000;
