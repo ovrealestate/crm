@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.16.3-branding-logo-dark
+ * Version: 0.17.0-funnel-capi
 
  * ============================================================
 
@@ -32,13 +32,13 @@
 
  *
 
- * Interfaz real inicial: Hoy + Leads + detalle de lead.\n * TODAVÍA NO ESCRIBE EN EL CRM.
+ * Interfaz CRM completa con lectura/escritura, administración y funnel CAPI.
 
  */
 
 
 
-const APP_VERSION = "0.16.3-branding-logo-dark";
+const APP_VERSION = "0.17.0-funnel-capi";
 
 
 
@@ -6847,7 +6847,7 @@ function renderAppPage() {
  leadsSearch: "",
  leadsStage: "",
  leadsProject: "",
- leadsHideDiscarded: true,
+ leadsHideInactive: true,
  loadingDetailId: "",
  lastHoyLoad: 0,
  lastLeadsLoad: 0,
@@ -8571,15 +8571,19 @@ function renderAppPage() {
  const discardedTotal = list.leads.filter(function(lead) {
  return String(lead.etapa || "").trim() === "Descartado";
  }).length;
- const visibleBaseTotal = state.leadsHideDiscarded
- ? Math.max(0, list.leads.length - discardedTotal)
+ const noResponseTotal = list.leads.filter(function(lead) {
+ return String(lead.etapa || "").trim() === "No responde";
+ }).length;
+ const inactiveTotal = discardedTotal + noResponseTotal;
+ const visibleBaseTotal = state.leadsHideInactive
+ ? Math.max(0, list.leads.length - inactiveTotal)
  : list.leads.length;
 
  const leadsHero = createHero(
  "Base comercial",
  "Leads",
- state.leadsHideDiscarded
- ? visibleBaseTotal + " leads activos" + (discardedTotal ? " · " + discardedTotal + " descartados ocultos" : "")
+ state.leadsHideInactive
+ ? visibleBaseTotal + " leads activos" + (inactiveTotal ? " · " + inactiveTotal + " no responde/descartados ocultos" : "")
  : list.leads.length + " leads"
  );
  const leadsHeroSubtitle = leadsHero.querySelector(".page-subtitle");
@@ -8639,20 +8643,20 @@ function renderAppPage() {
  );
 
  const optionsRow = element("div", "leads-options-row");
- const hideDiscardedLabel = element("label", "leads-hide-discarded");
- const hideDiscardedCheck = document.createElement("input");
- hideDiscardedCheck.type = "checkbox";
- hideDiscardedCheck.checked = !!state.leadsHideDiscarded;
- const hideDiscardedText = document.createTextNode(" No mostrar descartados");
- hideDiscardedLabel.append(hideDiscardedCheck, hideDiscardedText);
+ const hideInactiveLabel = element("label", "leads-hide-discarded");
+ const hideInactiveCheck = document.createElement("input");
+ hideInactiveCheck.type = "checkbox";
+ hideInactiveCheck.checked = !!state.leadsHideInactive;
+ const hideInactiveText = document.createTextNode(" No mostrar No responde ni descartados");
+ hideInactiveLabel.append(hideInactiveCheck, hideInactiveText);
  const hiddenCountText = element(
  "div",
  "leads-hidden-count",
- discardedTotal
- ? discardedTotal + (discardedTotal === 1 ? " descartado" : " descartados")
- : "Sin descartados"
+ inactiveTotal
+ ? inactiveTotal + " oculto" + (inactiveTotal === 1 ? "" : "s") + " (" + noResponseTotal + " no responde · " + discardedTotal + " descartados)"
+ : "Sin leads ocultos"
  );
- optionsRow.append(hideDiscardedLabel, hiddenCountText);
+ optionsRow.append(hideInactiveLabel, hiddenCountText);
  content.appendChild(optionsRow);
 
  const stages =
@@ -8844,8 +8848,8 @@ function renderAppPage() {
  projectSelect.value;
 
  if (leadsHeroSubtitle) {
- leadsHeroSubtitle.textContent = state.leadsHideDiscarded
- ? visibleBaseTotal + " leads activos" + (discardedTotal ? " · " + discardedTotal + " descartados ocultos" : "")
+ leadsHeroSubtitle.textContent = state.leadsHideInactive
+ ? visibleBaseTotal + " leads activos" + (inactiveTotal ? " · " + inactiveTotal + " no responde/descartados ocultos" : "")
  : list.leads.length + " leads";
  }
 
@@ -8868,8 +8872,8 @@ function renderAppPage() {
  }
 
  if (
- state.leadsHideDiscarded &&
- String(lead.etapa || "").trim() === "Descartado"
+ state.leadsHideInactive &&
+ ["Descartado", "No responde"].indexOf(String(lead.etapa || "").trim()) !== -1
  ) {
  return false;
  }
@@ -8946,19 +8950,19 @@ function renderAppPage() {
  stageSelect.addEventListener(
  "change",
  function() {
- if (stageSelect.value === "Descartado" && hideDiscardedCheck.checked) {
- hideDiscardedCheck.checked = false;
- state.leadsHideDiscarded = false;
+ if (["Descartado", "No responde"].indexOf(stageSelect.value) !== -1 && hideInactiveCheck.checked) {
+ hideInactiveCheck.checked = false;
+ state.leadsHideInactive = false;
  }
  draw();
  }
  );
 
- hideDiscardedCheck.addEventListener(
+ hideInactiveCheck.addEventListener(
  "change",
  function() {
- state.leadsHideDiscarded = !!hideDiscardedCheck.checked;
- if (state.leadsHideDiscarded && stageSelect.value === "Descartado") {
+ state.leadsHideInactive = !!hideInactiveCheck.checked;
+ if (state.leadsHideInactive && ["Descartado", "No responde"].indexOf(stageSelect.value) !== -1) {
  stageSelect.value = "";
  state.leadsStage = "";
  }
@@ -9685,7 +9689,7 @@ function renderAppPage() {
  // que registráramos MENSAJE en Historial CRM.
  if (count === 0) {
  const stage = normalized(lead && lead.etapa);
- if (["contactado", "calificado", "cita agendada", "compra", "no responde"].indexOf(stage) !== -1) {
+ if (["contactado", "en conversacion", "calificado", "cita agendada", "compra", "no responde"].indexOf(stage) !== -1) {
  count = 1;
  }
  }
@@ -9884,7 +9888,7 @@ function renderAppPage() {
  ? String(changes.etapa)
  : "";
  const hasMetaLeadId = !!(lead && lead.adquisicion_meta && lead.adquisicion_meta.lead_id);
- const capiStages = ["Contactado", "No responde", "Calificado", "Cita agendada", "Compra", "Descartado"];
+ const capiStages = ["Contactado", "En conversación", "No responde", "Calificado", "Cita agendada", "Compra", "Descartado"];
  const shouldMonitorCapi = expectedStage && hasMetaLeadId && capiStages.indexOf(expectedStage) !== -1;
  const capiSinceMs = shouldMonitorCapi ? Date.now() : 0;
 
@@ -10610,13 +10614,15 @@ function renderAppPage() {
  syncConfirmMode();
 
  const stageFollowupBox = element("div", "confirm-box");
- const stageFollowupOptIn = element("label", "confirm-line");
- const stageFollowupCheck = element("input");
- stageFollowupCheck.type = "checkbox";
- stageFollowupCheck.checked = normalized(lead.etapa) !== "no responde" || !!lead.proximo_seguimiento;
- stageFollowupOptIn.append(stageFollowupCheck, document.createTextNode("Programar otro seguimiento"));
- stageFollowupOptIn.style.display = "none";
- stageFollowupBox.appendChild(stageFollowupOptIn);
+ const stageNoNextLabel = element("label", "confirm-line");
+ const stageNoNextCheck = element("input");
+ stageNoNextCheck.type = "checkbox";
+ // Al entrar por primera vez a No responde, por default SÍ proponemos seguimiento.
+ // Solo se marca automáticamente si el lead ya estaba en No responde sin fecha futura.
+ stageNoNextCheck.checked = normalized(lead.etapa) === "no responde" && !lead.proximo_seguimiento;
+ stageNoNextLabel.append(stageNoNextCheck, document.createTextNode(" Sin próximo seguimiento"));
+ stageNoNextLabel.style.display = "none";
+ stageFollowupBox.appendChild(stageNoNextLabel);
 
  const stageFollowupDetails = element("div");
  const stageFollowupSequence = followupSequenceBox(historial, lead);
@@ -10630,11 +10636,12 @@ function renderAppPage() {
  wireDateTabToTime(stageFollowupDate, stageFollowupTime);
  const stageFollowupGrid = element("div", "followup-grid");
  stageFollowupGrid.append(stageFollowupDateControl.root, stageFollowupTimeControl.root);
- stageFollowupDetails.appendChild(popoverField("Próximo seguimiento · fecha y hora", stageFollowupGrid));
+ const stageFollowupDateField = popoverField("Próximo seguimiento · fecha y hora", stageFollowupGrid);
+ stageFollowupDetails.appendChild(stageFollowupDateField);
 
  const stageFollowupNote = element("textarea", "form-control");
  stageFollowupNote.rows = 3;
- stageFollowupNote.placeholder = "Ej. Si no responde mañana, descartar. / Preguntarle si revisó la información enviada.";
+ stageFollowupNote.placeholder = "Ej. Cuarto intento realizado. Nunca respondió. Cierro seguimiento por ahora.";
  const stageFollowupNoteField = popoverField("Nota / antecedente", stageFollowupNote);
  stageFollowupNoteField.style.display = "none";
  stageFollowupDetails.appendChild(stageFollowupNoteField);
@@ -10649,16 +10656,33 @@ function renderAppPage() {
 
  const syncStageFollowupOptIn = function() {
  const isNoResponse = normalized(select.value) === "no responde";
- stageFollowupOptIn.style.display = isNoResponse ? "flex" : "none";
- stageFollowupDetails.style.display = !isNoResponse || stageFollowupCheck.checked ? "block" : "none";
- stageFollowupNoteField.style.display = isNoResponse && stageFollowupCheck.checked ? "grid" : "none";
+ stageNoNextLabel.style.display = isNoResponse ? "flex" : "none";
+ stageFollowupDetails.style.display = "block";
+ stageFollowupNoteField.style.display = isNoResponse ? "grid" : "none";
+ const noNext = isNoResponse && stageNoNextCheck.checked;
+ stageFollowupDate.disabled = noNext;
+ stageFollowupTime.disabled = noNext;
+ if (stageFollowupDateControl.picker) stageFollowupDateControl.picker.disabled = noNext;
+ if (stageFollowupTimeControl.picker) stageFollowupTimeControl.picker.disabled = noNext;
+ stageFollowupDateField.style.opacity = noNext ? ".55" : "1";
+ if (noNext) {
+ stageFollowupDate.value = "";
+ stageFollowupTime.value = "";
+ if (stageFollowupDateControl.picker) stageFollowupDateControl.picker.value = "";
+ if (stageFollowupTimeControl.picker) stageFollowupTimeControl.picker.value = "";
+ } else if (isNoResponse && (!stageFollowupDate.value || !stageFollowupTime.value)) {
+ const refreshedDefault = automaticFollowupDefault(lead.proximo_seguimiento);
+ const refreshedParts = parseLeadDateParts(refreshedDefault.value);
+ stageFollowupDate.value = mxDateDisplayFromIso(refreshedParts.date || refreshedDefault.value);
+ stageFollowupTime.value = mxTimeDisplayFrom24(refreshedDefault.time || refreshedParts.time || "09:00");
+ }
  stageFollowupSummary.textContent = isNoResponse
- ? (stageFollowupCheck.checked
- ? "Opcional. Se programará otro intento de contacto; por defecto se propone mañana a las 9:00 a.m."
- : "No se programará otro seguimiento. Puedes hacerlo después desde la ficha del lead.")
+ ? (noNext
+ ? "Último intento: no se programará otra fecha. La nota quedará guardada en el historial."
+ : "Se programará otro intento de contacto. Si este es el último, marque “Sin próximo seguimiento”.")
  : "Obligatorio al cambiar a esta etapa. Después puede editarlo desde la ficha del lead.";
  };
- stageFollowupCheck.addEventListener("change", syncStageFollowupOptIn);
+ stageNoNextCheck.addEventListener("change", syncStageFollowupOptIn);
 
  const valueInput = element("input", "form-control");
  valueInput.type = "number";
@@ -10701,7 +10725,7 @@ function renderAppPage() {
  const stage = normalized(select.value);
  let messageContext = null;
  if (stage === "contactado") {
- if (!contactChannel.value) throw new Error("Seleccione si el contacto se realizó por WhatsApp / Mensaje o Llamada.");
+ if (!contactChannel.value) throw new Error("Seleccione por qué medio realizó el intento de contacto: WhatsApp / Mensaje o Llamada.");
  const contactChannelNormalized = normalized(contactChannel.value);
  if (contactChannelNormalized.indexOf("whatsapp") !== -1) {
  contactComposer.validateSent();
@@ -10728,11 +10752,13 @@ function renderAppPage() {
  changes.proximo_seguimiento = "";
  changes.seguimiento_actividad = "";
  changes.seguimiento_nota = "";
- } else if (stage === "no responde" && !stageFollowupCheck.checked) {
- // No responde puede quedarse sin tarea si el usuario decide no intentar de nuevo todavía.
+ } else if (stage === "no responde" && stageNoNextCheck.checked) {
+ // Último intento: conserva la etapa No responde, elimina la tarea futura y guarda el resultado.
+ const closingNote = String(stageFollowupNote.value || "").trim();
+ if (!closingNote) throw new Error("Escriba una nota breve indicando el resultado del último intento.");
  changes.proximo_seguimiento = "";
  changes.seguimiento_actividad = "";
- changes.seguimiento_nota = "";
+ changes.seguimiento_nota = closingNote;
  } else if (stage !== "cita agendada") {
  const stageFollowupDateValue = parseMxDateInput(stageFollowupDate.value);
  if (!stageFollowupDateValue) throw new Error("Capture la fecha del próximo seguimiento. Puede escribir 8 dígitos, por ejemplo 27092026.");
@@ -10742,6 +10768,7 @@ function renderAppPage() {
  stageFollowupTime.value = mxTimeDisplayFrom24(stageFollowupTimeValue);
  changes.proximo_seguimiento = apiLocalDateTimeValue(stageFollowupDateValue, stageFollowupTimeValue);
  if (stage === "no responde") {
+ changes.seguimiento_actividad = "WhatsApp / mensaje";
  changes.seguimiento_nota = String(stageFollowupNote.value || "").trim();
  }
  }
