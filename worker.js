@@ -4,7 +4,7 @@
 
  * OV REAL ESTATE CRM — CLOUDFLARE WORKER
 
- * Version: 0.17.0-funnel-capi
+ * Version: 0.17.1-followup-visibility
 
  * ============================================================
 
@@ -38,7 +38,7 @@
 
 
 
-const APP_VERSION = "0.17.0-funnel-capi";
+const APP_VERSION = "0.17.1-followup-visibility";
 
 
 
@@ -8571,10 +8571,15 @@ function renderAppPage() {
  const discardedTotal = list.leads.filter(function(lead) {
  return String(lead.etapa || "").trim() === "Descartado";
  }).length;
- const noResponseTotal = list.leads.filter(function(lead) {
- return String(lead.etapa || "").trim() === "No responde";
+ const noFollowupNonDiscardedTotal = list.leads.filter(function(lead) {
+ const stage = String(lead.etapa || "").trim();
+ const hasFollowup = !!String(lead.proximo_seguimiento || "").trim();
+ return stage !== "Descartado" && !hasFollowup;
  }).length;
- const inactiveTotal = discardedTotal + noResponseTotal;
+ // El filtro operativo oculta dos grupos sin duplicarlos:
+ // 1) todos los descartados; 2) cualquier otro lead sin próximo seguimiento.
+ // La fecha puede estar vencida: mientras exista, el lead sigue visible.
+ const inactiveTotal = discardedTotal + noFollowupNonDiscardedTotal;
  const visibleBaseTotal = state.leadsHideInactive
  ? Math.max(0, list.leads.length - inactiveTotal)
  : list.leads.length;
@@ -8583,7 +8588,7 @@ function renderAppPage() {
  "Base comercial",
  "Leads",
  state.leadsHideInactive
- ? visibleBaseTotal + " leads activos" + (inactiveTotal ? " · " + inactiveTotal + " no responde/descartados ocultos" : "")
+ ? visibleBaseTotal + " leads con próximo seguimiento" + (inactiveTotal ? " · " + inactiveTotal + " ocultos" : "")
  : list.leads.length + " leads"
  );
  const leadsHeroSubtitle = leadsHero.querySelector(".page-subtitle");
@@ -8647,13 +8652,13 @@ function renderAppPage() {
  const hideInactiveCheck = document.createElement("input");
  hideInactiveCheck.type = "checkbox";
  hideInactiveCheck.checked = !!state.leadsHideInactive;
- const hideInactiveText = document.createTextNode(" No mostrar No responde ni descartados");
+ const hideInactiveText = document.createTextNode(" Ocultar descartados y leads sin próximo seguimiento");
  hideInactiveLabel.append(hideInactiveCheck, hideInactiveText);
  const hiddenCountText = element(
  "div",
  "leads-hidden-count",
  inactiveTotal
- ? inactiveTotal + " oculto" + (inactiveTotal === 1 ? "" : "s") + " (" + noResponseTotal + " no responde · " + discardedTotal + " descartados)"
+ ? inactiveTotal + " oculto" + (inactiveTotal === 1 ? "" : "s") + " (" + noFollowupNonDiscardedTotal + " sin próximo seguimiento · " + discardedTotal + " descartados)"
  : "Sin leads ocultos"
  );
  optionsRow.append(hideInactiveLabel, hiddenCountText);
@@ -8849,7 +8854,7 @@ function renderAppPage() {
 
  if (leadsHeroSubtitle) {
  leadsHeroSubtitle.textContent = state.leadsHideInactive
- ? visibleBaseTotal + " leads activos" + (inactiveTotal ? " · " + inactiveTotal + " no responde/descartados ocultos" : "")
+ ? visibleBaseTotal + " leads con próximo seguimiento" + (inactiveTotal ? " · " + inactiveTotal + " ocultos" : "")
  : list.leads.length + " leads";
  }
 
@@ -8871,11 +8876,14 @@ function renderAppPage() {
  return false;
  }
 
- if (
- state.leadsHideInactive &&
- ["Descartado", "No responde"].indexOf(String(lead.etapa || "").trim()) !== -1
- ) {
+ if (state.leadsHideInactive) {
+ const leadStage = String(lead.etapa || "").trim();
+ const hasFollowup = !!String(lead.proximo_seguimiento || "").trim();
+ // Por default: descartados nunca se muestran y cualquier lead sin próxima fecha se oculta.
+ // Un seguimiento vencido sigue siendo seguimiento y por lo tanto permanece visible.
+ if (leadStage === "Descartado" || !hasFollowup) {
  return false;
+ }
  }
 
  if (
@@ -8950,7 +8958,7 @@ function renderAppPage() {
  stageSelect.addEventListener(
  "change",
  function() {
- if (["Descartado", "No responde"].indexOf(stageSelect.value) !== -1 && hideInactiveCheck.checked) {
+ if (stageSelect.value === "Descartado" && hideInactiveCheck.checked) {
  hideInactiveCheck.checked = false;
  state.leadsHideInactive = false;
  }
@@ -8962,7 +8970,7 @@ function renderAppPage() {
  "change",
  function() {
  state.leadsHideInactive = !!hideInactiveCheck.checked;
- if (state.leadsHideInactive && ["Descartado", "No responde"].indexOf(stageSelect.value) !== -1) {
+ if (state.leadsHideInactive && stageSelect.value === "Descartado") {
  stageSelect.value = "";
  state.leadsStage = "";
  }
